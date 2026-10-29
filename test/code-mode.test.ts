@@ -21,6 +21,9 @@ function host(mode: "on" | "only" = "on") {
   let notifyOpened!: () => void;
   const opened = new Promise<void>(resolve => { notifyOpened = resolve; });
   const api = {
+    registerToolRenderer() {},
+    registerMessageRenderer() {},
+    registerEntryRenderer() {},
     registerTool: (tool: any) => tools.set(tool.name, tool),
     registerCommand() {},
     on: (name: string, callback: Function) => handlers.set(name, callback),
@@ -29,6 +32,7 @@ function host(mode: "on" | "only" = "on") {
     getSettings: () => ({ codemode: { mode } }),
     appendEntry() {},
     sendUserMessage() { userTurns++; },
+    sendMessage() { userTurns++; },
   } as unknown as ExtensionAPI;
   openuiExtension(api);
   createCodemodeExtension({ mode, models: false, inlineBudget: 20_000 })(api);

@@ -8,16 +8,16 @@ Requires Node.js 22.19+ and Pi with the `@earendil-works` package namespace (tes
 
 ```sh
 npm ci --ignore-scripts
-pi --tui-mode fullscreen -e ./src/index.ts
+pi --tui-mode fullscreen -e ./src/index.ts --skill ./skills/openui/SKILL.md
 ```
 
-In Pi, run `/openui-demo` or `/openui-demo --stream`. Choose a next step, enter instructions, then activate **Send to Pi**. Submission sends a user message to the active session (queued as a follow-up if Pi is busy). Escape or Ctrl+C cancels without sending a message.
+In Pi, run `/openui-demo` or `/openui-demo --stream`. Choose a next step, enter instructions, then activate **Send to Pi**. Submission sends one structured action message to the active session and displays a themed receipt (queued as a follow-up if Pi is busy). Escape or Ctrl+C cancels; its receipt does not start another agent turn.
 
 Run `/openui-demo --actions` to try buttons that update state without closing the panel: increment a counter, apply an ordered plan, reset the fields, and send the result to Pi. Add `--stream` to preview this demo incrementally; it remains read-only until complete.
 
 Run `/openui-demo --catalog` to explore all **25 components** across Forms, Layout, Display and Advanced pages. Try the calendar, tree, multiline editor, workflow buttons and typed fields. Complete the required fields, then submit the result to Pi. See the [component reference](docs/components.md) and [actual Pi screenshots](docs/catalog-demo.md). This demo also accepts `--stream`.
 
-To persist installation, run `pi install /absolute/path/to/pi-openui-tui`. The package's `pi.extensions` manifest identifies the entry point. Pi supplies its own TUI at runtime; development dependencies are only for local checks.
+To persist installation, run `pi install /absolute/path/to/pi-openui-tui`. The package manifest registers the extension and its bundled `openui` skill. Pi supplies its own TUI at runtime; development dependencies are only for local checks.
 
 From GitHub, install with `pi install git:github.com/FireTheDevil/pi-openui`.
 
@@ -54,19 +54,45 @@ Use a `Stack` root and declared state variables of the appropriate type for form
 
 The tool result continues the current agent turn; it does not also inject a duplicate user message. Cancellation returns `{"status":"cancelled"}`. Invalid documents return an error with diagnostics. RPC, JSON and print modes return an explicit unsupported-mode error.
 
+## Submission summaries
+
+After the form closes, Pi displays a themed receipt with readable field labels and choice names. Submitted, cancelled and error outcomes have distinct status styling. Receipts follow Pi's active theme, wrap on narrow terminals, and show a compact selection of fields. Expand tool details (Ctrl+O by default) to inspect all receipt fields and the full structured result.
+
+Optionally choose the receipt title and field order:
+
+```js
+show_ui({
+  source,
+  summary: { title: "Review configuration", fields: ["owner", "checks", "retries"] }
+});
+```
+
+`summary.fields` contains field names, not labels or `$variables`; unknown names are ignored. Without it, the receipt uses document order and omits Tabs/Steps navigation. Booleans render as Yes/No and rich selections use their labels. These hints affect presentation only: `content` and `structuredContent` still contain the complete original outcome, including every submitted value, state and context. Display metadata is kept separately in `details.openuiReceipt`.
+
+Direct tool calls render the receipt in their tool result. Native code-mode calls display a separate persistent receipt in the transcript. For completed scripts containing only known OpenUI results, the code block collapses to a short execution summary; expansion restores the original code and output. Mixed scripts retain their other calls and output. Only an exact known result is hidden from the compact display. Cancellation and errors never fabricate submitted values, and a submitted receipt confirms input was received, not that any requested external work was performed.
+
+See the [submission summary screenshots](docs/submission-summaries.md) for actual Pi captures and verification details.
+
+## Model guidance
+
+The extension automatically supplies lang-core's component schemas, binding/action rules and examples whenever `show_ui` is active in TUI mode. The bundled [openui skill](skills/openui/SKILL.md) adds design guidance: when to ask through a form, which of the 25 components to choose, how to structure pages, and which fields belong in a submission receipt. It also covers cancellation, validation and native code mode.
+
+Package installation makes the skill discoverable. Pi loads its detailed instructions on demand; `/skill:openui` explicitly loads it. When running only the extension file with `-e`, add `--skill ./skills/openui/SKILL.md` as in the command above. Keep `read` or `bash` available if you use a restricted tool list: Pi omits skill discovery from the model prompt when neither tool is callable. The generated component prompt remains available independently of skill loading.
+
 ## Native code mode
 
 Pi's native `codemode` can call the same tool while the session is in interactive TUI mode. Enable it alongside `show_ui`, for example:
 
 ```sh
-pi --tui-mode fullscreen --tools +codemode -e ./src/index.ts
+pi --tui-mode fullscreen --tools +codemode -e ./src/index.ts --skill ./skills/openui/SKILL.md
 ```
 
 A model's `codemode` script can then await a structured result:
 
 ```js
 const result = await tools.show_ui({
-  source: 'root = Stack([Button("Continue", @ToAssistant("Continue with the plan"))]);'
+  source: 'root = Stack([Button("Continue", @ToAssistant("Continue with the plan"))]);',
+  summary: { title: "Plan confirmation" }
 });
 text(result);
 ```
@@ -113,7 +139,7 @@ root = Stack([
 | `@ToAssistant(message, context)` | Submit current values and state, plus the message and optional context, then close |
 | `Action([...])` | Execute supported steps in order; submission must be the final step |
 
-`@ToAssistant` returns `status: "submitted"` and `action: "continue_conversation"`, with `message`, optional `context`, `state` and `values`. For `show_ui`, this completes the waiting tool call so Pi can continue. The demo delivers the same structured result as a user message.
+`@ToAssistant` returns `status: "submitted"` and `action: "continue_conversation"`, with `message`, optional `context`, `state` and `values`. For `show_ui`, this completes the waiting tool call so Pi can continue. The demo delivers the same structured result through one themed session message.
 
 Plans are limited to 32 steps and may only target declared variables. Steps see preceding state changes; the plan commits only if the resulting UI is valid, otherwise all its changes roll back. Unsupported actions, such as `@Run`, `@OpenUrl` or custom host actions, produce explicit errors. Query and Mutation are not implemented. Action failures appear in the panel so the user can correct fields or cancel. All action execution remains disabled while streaming.
 
@@ -142,6 +168,6 @@ npm run typecheck
 npm test
 ```
 
-`src/catalog.ts` defines the Zod component specifications and generated model prompt. `src/model.ts` owns parsing, evaluation, typed state, validation and action dispatch. `src/view.ts` composes layouts and routes focus and pointer events; `src/controls.ts`, `src/displays.ts` and `src/presentation.ts` implement widgets, content and theme handling. `src/index.ts` owns Pi registration and panel lifecycle. Automated tests exercise real lang-core and Pi widgets, hidden-page validation, ordered actions, malformed/streaming input, resizing, Pi's actual extension loader, its fullscreen mouse decoder, and native codemode's QuickJS worker, using simulated host/terminal boundaries.
+`src/catalog.ts` defines the Zod component specifications and generated model prompt. `src/model.ts` owns parsing, evaluation, typed state, validation and action dispatch. `src/view.ts` composes layouts and routes focus and pointer events; `src/controls.ts`, `src/displays.ts` and `src/presentation.ts` implement widgets, content and theme handling. `src/summary.ts` renders receipts; `src/code-summary.ts` persists native code-mode receipts and adapts its transcript display. `src/index.ts` owns Pi registration and panel lifecycle. Automated tests exercise real lang-core and Pi widgets, hidden-page validation, actions, malformed/streaming input, resizing, receipt data preservation, session branches, skill discovery, Pi's actual extension loader, its fullscreen mouse decoder, and native codemode's QuickJS worker, using simulated host/terminal boundaries.
 
 The extension was also tested in the actual Pi 1.4.0 CLI on Node 24 with a local deterministic provider, in both dark and light themes. All 25 components, keyboard/mouse editing, local actions, reset, resizing, streaming, submission through the session/tool loop and cancellation passed. Native code-only mode returned typed form results end to end, with nested tool IDs, prompt availability and cancellation verified. External model providers have not been tested. The [catalog gallery](docs/catalog-demo.md) captures actual PTY output; recording and screenshot tooling are excluded from the repository and package.

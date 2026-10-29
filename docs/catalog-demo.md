@@ -53,6 +53,6 @@ Pi's native code-only QuickJS worker awaited `tools.show_ui(...)`, received the 
 }
 ```
 
-![Native code-mode submission returning typed values](screenshots/catalog-code-mode.png)
+[Original v0.4 native code-mode result capture](screenshots/catalog-code-mode.png). Version 0.5 displays a separate themed receipt and keeps the execution details expandable; see the [current submission screenshots](submission-summaries.md).
 
 The live checks also verified parent tool-call IDs, prompt availability, exactly one result per submission, and cancellation. Streaming stays read-only until the complete document is validated, as in earlier versions.

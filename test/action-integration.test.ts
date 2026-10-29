@@ -14,11 +14,16 @@ function host() {
   let view: OpenUIView;
   let closed = 0;
   const api = {
+    registerToolRenderer() {},
+    registerMessageRenderer() {},
+    registerEntryRenderer() {},
+    appendEntry() {},
     on: (name: string, handler: Function) => handlers.set(name, handler),
     registerTool: (tool: any) => tools.set(tool.name, tool),
     registerCommand: (name: string, command: any) => commands.set(name, command),
     getActiveTools: () => [...tools.keys()],
     sendUserMessage: (content: string) => sent.push(content),
+    sendMessage: (message: {content:string}) => sent.push(message.content),
   } as unknown as ExtensionAPI;
   const ctx = {
     mode: "tui", hasUI: true,

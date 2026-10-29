@@ -18,11 +18,16 @@ function host(mode = "tui") {
   let closes = 0;
   let customOptions: unknown;
   const api = {
+    registerToolRenderer() {},
+    registerMessageRenderer() {},
+    registerEntryRenderer() {},
+    appendEntry() {},
     on: (name: string, handler: Function) => events.set(name, handler),
     registerTool: (tool: any) => tools.set(tool.name, tool),
     registerCommand: (name: string, command: any) => commands.set(name, command),
     getActiveTools: () => [...tools.keys()],
     sendUserMessage: (message: string, options: unknown) => sent.push({ message, options }),
+    sendMessage: (message: {content:string}, options: unknown) => sent.push({ message: message.content, options }),
   } as unknown as ExtensionAPI;
   const ctx = {
     mode,
@@ -187,7 +192,7 @@ test("demo covers all six components and sends the selected action to Pi", async
   assert.match(h.sent[0].message, /ship it/);
   const action = JSON.parse(h.sent[0].message.slice("OpenUI user action: ".length));
   assert.deepEqual(action.values, { choice: "Implement", note: "ship it" });
-  assert.deepEqual(h.sent[0].options, { deliverAs: "followUp" });
+  assert.deepEqual(h.sent[0].options, { triggerTurn: true, deliverAs: "followUp" });
 });
 
 test("streaming demo can be cancelled without sending an action", async () => {
