@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { DEMO_SOURCE } from "./demo.js";
+import { ACTIONS_DEMO_SOURCE, DEMO_SOURCE } from "./demo.js";
 import { DocumentModel, limits, modelPrompt } from "./model.js";
 import { OpenUIView, type UIResult } from "./view.js";
 
@@ -127,7 +127,7 @@ export default function openuiExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "show_ui",
     label: "OpenUI",
-    description: "Show an interactive native terminal UI from an OpenUI Lang document. Returns the user's submitted action and field state, or cancellation. Requires interactive Pi TUI mode.",
+    description: "Show an interactive native terminal UI from an OpenUI Lang document. Local Set/Reset button actions update the open panel; ToAssistant or a legacy action identifier submits current values. Returns submission or cancellation. Requires interactive Pi TUI mode.",
     promptSnippet: "Display an OpenUI Lang form or table in the terminal and wait for the user's action.",
     promptGuidelines: ["Use the OpenUI component library in the openui prompt section. Submit a complete program in source, with root = Stack([...])."],
     parameters: Type.Object({
@@ -163,14 +163,15 @@ export default function openuiExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("openui-demo", {
-    description: "Try the OpenUI terminal components; add --stream for incremental parsing.",
+    description: "Try OpenUI components; --actions demonstrates stateful buttons, --stream previews incremental parsing.",
     async handler(args, ctx) {
       if (ctx.mode !== "tui") {
         ctx.ui.notify("/openui-demo requires Pi interactive TUI mode.", "error");
         return;
       }
-      if (args.trim() && args.trim() !== "--stream") {
-        ctx.ui.notify("Usage: /openui-demo [--stream]", "error");
+      const flags = args.trim() ? args.trim().split(/\s+/) : [];
+      if (new Set(flags).size !== flags.length || flags.some(flag => flag !== "--stream" && flag !== "--actions")) {
+        ctx.ui.notify("Usage: /openui-demo [--actions] [--stream]", "error");
         return;
       }
       if (visible) {
@@ -178,16 +179,17 @@ export default function openuiExtension(pi: ExtensionAPI): void {
         return;
       }
       const panel = create(`demo:${Date.now()}`);
-      const streaming = args.trim() === "--stream";
+      const streaming = flags.includes("--stream");
+      const source = flags.includes("--actions") ? ACTIONS_DEMO_SOURCE : DEMO_SOURCE;
       try {
-        update(panel, streaming ? "" : DEMO_SOURCE, streaming);
-        show(panel, ctx, "OpenUI demo");
+        update(panel, streaming ? "" : source, streaming);
+        show(panel, ctx, flags.includes("--actions") ? "OpenUI actions demo" : "OpenUI demo");
         if (streaming && !panel.result) {
           let offset = 0;
           panel.timer = setInterval(() => {
-            offset = Math.min(DEMO_SOURCE.length, offset + 24);
-            const pending = offset < DEMO_SOURCE.length;
-            update(panel, DEMO_SOURCE.slice(0, offset), pending);
+            offset = Math.min(source.length, offset + 24);
+            const pending = offset < source.length;
+            update(panel, source.slice(0, offset), pending);
             if (!pending && panel.timer) clearInterval(panel.timer);
           }, 35);
         }

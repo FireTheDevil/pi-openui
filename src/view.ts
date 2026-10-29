@@ -4,10 +4,10 @@ import {
   type TuiMouseEvent, type TuiMouseEventResult,
 } from "@earendil-works/pi-tui";
 import type { ElementNode } from "@openuidev/lang-core";
-import type { DocumentModel } from "./model.js";
+import type { ActionSubmission, DocumentModel } from "./model.js";
 
 export type UIResult =
-  | { status: "submitted"; action: string; state: Record<string, unknown>; values: Record<string, string> }
+  | ActionSubmission
   | { status: "cancelled" };
 
 export interface ViewOptions {
@@ -42,6 +42,8 @@ export class OpenUIView implements Component, Focusable {
   private offset = 0;
   private followFocus = true;
   private closed = false;
+  private activating = false;
+  private actionError?: { key: string; message: string };
   private positions = new Map<string, number>();
   private labelPositions = new Map<string, number>();
   private bodyLength = 0;
@@ -112,6 +114,26 @@ export class OpenUIView implements Component, Focusable {
     this.options.onDone(result);
   }
 
+  /** Keyboard and mouse share one action path; local actions keep this view open. */
+  private activateButton(control: Control): void {
+    if (this.closed || this.activating || this.model.streaming || !this.model.valid) return;
+    this.activating = true;
+    this.actionError = undefined;
+    try {
+      const result = this.model.activate(control.node);
+      if (result.status === "submitted") {
+        this.finish(result);
+        return;
+      }
+      if (result.status === "error") this.actionError = { key: control.key, message: result.error };
+    } catch (error) {
+      this.actionError = { key: control.key, message: error instanceof Error ? error.message : String(error) };
+    } finally {
+      this.activating = false;
+    }
+    this.refresh();
+  }
+
   handleInput(data: string): void {
     if (this.closed) return;
     if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
@@ -134,7 +156,7 @@ export class OpenUIView implements Component, Focusable {
     this.followFocus = true;
     if (control.node.typeName === "Button") {
       if (matchesKey(data, "enter") || matchesKey(data, "space")) {
-        this.finish({ status: "submitted", action: String(control.node.props.action), state: this.model.state, values: this.model.formValues });
+        this.activateButton(control);
       } else if (matchesKey(data, "down") || matchesKey(data, "up")) {
         this.moveFocus(matchesKey(data, "down") ? 1 : -1);
       }
@@ -152,9 +174,11 @@ export class OpenUIView implements Component, Focusable {
         const value = safeText(control.widget.getValue()).replace(/\n/g, " ").slice(0, 4000);
         if (value !== control.widget.getValue()) control.widget.setValue(value);
         this.model.setField(control.node, value);
+        this.actionError = undefined;
       } else if (control.widget instanceof SelectList) {
         const item = control.widget.getSelectedItem();
         if (item) this.model.setField(control.node, item.value);
+        this.actionError = undefined;
       }
     }
     this.refresh();
@@ -181,6 +205,7 @@ export class OpenUIView implements Component, Focusable {
         if (result?.handled) {
           const item = control.widget.getSelectedItem();
           if (item) this.model.setField(control.node, item.value);
+          this.actionError = undefined;
           this.refresh();
           return { handled: true, render: result.render };
         }
@@ -217,9 +242,9 @@ export class OpenUIView implements Component, Focusable {
     // Mouse clicks operate on the displayed content; do not jump the viewport under the pointer.
     this.followFocus = false;
     if (target.part === "button" && event.type === "click") {
-      this.finish({ status: "submitted", action: String(control.node.props.action), state: this.model.state, values: this.model.formValues });
+      this.activateButton(control);
       // done() may have removed this overlay; do not ask Pi to refocus a disposed view.
-      return { handled: true, render: true };
+      return this.closed ? { handled: true, render: true } : { handled: true, render: true, focus: true };
     } else if (target.part === "widget" && control.widget) {
       const local = { ...event, y: event.y - target.y, width: target.width, height: target.height };
       // Native Input places its cursor on press. A standalone normalized click also works.
@@ -228,6 +253,7 @@ export class OpenUIView implements Component, Focusable {
       if (control.widget instanceof SelectList) {
         const item = control.widget.getSelectedItem();
         if (item) this.model.setField(control.node, item.value);
+        this.actionError = undefined;
         this.refresh();
       }
     }
@@ -271,6 +297,7 @@ export class OpenUIView implements Component, Focusable {
               hits.push({ key, part: "button", y: lines.length, width: visibleWidth(line.trimEnd()), height: 1 });
               lines.push(line);
             }
+            if (this.actionError?.key === key) lines.push(...text(`Action error: ${this.actionError.message}`));
           }
           else {
             for (const line of text(`${prefix}${safeText(p.label)}`)) {
@@ -314,7 +341,7 @@ export class OpenUIView implements Component, Focusable {
     }
     this.offset = Math.max(0, Math.min(this.offset, Math.max(0, this.bodyLength - this.pageSize)));
     const title = `${safeText(this.options.title ?? "OpenUI")}${this.model.streaming ? " · receiving…" : ""}`;
-    const hint = this.model.streaming ? "Esc: cancel · waiting for complete document" : "Tab/Shift+Tab: focus · ↑↓: select · Enter: activate · PgUp/PgDn: scroll · Esc: cancel";
+    const hint = this.actionError ? `Action error: ${safeText(this.actionError.message).replace(/\n/g, " ")}` : this.model.streaming ? "Esc: cancel · waiting for complete document" : "Tab/Shift+Tab: focus · ↑↓: select · Enter: activate · PgUp/PgDn: scroll · Esc: cancel";
     const body = lines.slice(this.offset, this.offset + this.pageSize);
     const visibleBodyLength = body.length;
     if (this.options.fillHeight) while (body.length < this.pageSize) body.push("");
