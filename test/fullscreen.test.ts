@@ -65,11 +65,12 @@ test("fullscreen overlay routes SGR clicks to native controls after resize and s
     click(x + 1, y);
     assert.equal(model.formValues.choice, "Test");
     assert.ok(lines().some(line => line.includes("Selected: Test")));
-    const [, labelY] = at("Instructions");
-    click(2, labelY + 1);
+    const [labelX, labelY] = at("Instructions");
+    click(labelX, labelY + 1);
     terminal.input("mouse input");
     tui.flush();
-    click(2, labelY + 1);
+    const [inputX, inputY] = at("mouse input");
+    click(inputX, inputY);
     terminal.input("clicked: ");
     assert.equal(model.formValues.note, "clicked: mouse input");
 

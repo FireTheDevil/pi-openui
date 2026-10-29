@@ -12,7 +12,7 @@ Text and a vertical Stack contain a native Select and Input, a reactive Table, a
 
 ## Local actions and reactive rendering
 
-After editing the input, incrementing three times with keyboard and mouse, and clicking **Mark ready**, the Text and Table show the latest state. Mark ready runs two ordered `@Set` steps. These actions keep the panel open and send no message to Pi.
+After editing the input, incrementing with keyboard and mouse, and clicking **Mark ready**, the Text and Table show the latest state. Mark ready runs two ordered `@Set` steps. These actions keep the panel open and send no message to Pi.
 
 ![Updated components after local actions](screenshots/actions-edited.png)
 
@@ -24,7 +24,7 @@ Clicking **Reset all** runs `@Reset($count, $choice, $note, $status)`. The count
 
 ## Submit to the active session
 
-After reset, the test enters a new note, increments twice, marks the plan ready and clicks **Send to Pi**. `@ToAssistant` closes the panel and sends the current message, context, state and field values. Pi regains input focus and the local provider acknowledges the result below. For an agent-created `show_ui`, the same result completes its waiting tool call.
+After reset, the test enters a new note, increments the counter, marks the plan ready and clicks **Send to Pi**. `@ToAssistant` closes the panel and sends the current message, context, state and field values. Pi regains input focus and the local provider acknowledges the result below. For an agent-created `show_ui`, the same result completes its waiting tool call.
 
 ![Action delivered to the active Pi session](screenshots/actions-submitted.png)
 

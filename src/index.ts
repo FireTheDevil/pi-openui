@@ -70,10 +70,11 @@ export default function openuiExtension(pi: ExtensionAPI): void {
     if (panel.promise || panel.result) return;
     visible = panel;
     // Do not await custom() from message_update: the provider must keep streaming.
-    panel.promise = ctx.ui.custom<UIResult>((tui, _theme, _keys, done) => {
+    panel.promise = ctx.ui.custom<UIResult>((tui, theme, _keys, done) => {
       panel.close = done;
       panel.view = new OpenUIView(panel.model, {
         title,
+        theme,
         requestRender: () => tui.requestRender(),
         getHeight: () => Math.max(1, tui.terminal.rows),
         fillHeight: true,

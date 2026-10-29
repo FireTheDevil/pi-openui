@@ -52,7 +52,9 @@ test("native SelectList mouse selection survives recentering and re-evaluates de
 
 test("native Input receives local mouse coordinates and places its cursor at Unicode columns", () => {
   const f = fixture();
-  const result = f.mouse("press", 4, f.row("ab界cd"));
+  const row = f.row("ab界cd");
+  const textStart = f.render()[row].indexOf("ab界cd");
+  const result = f.mouse("press", textStart + 2, row);
   assert.equal(result?.focus, true);
   f.view.handleInput("X");
   assert.equal(f.model.formValues.note, "abX界cd");
@@ -102,6 +104,20 @@ test("dragging off a button, padding, right clicks, and modified clicks do not s
   assert.equal(f.results.length, 0);
   f.click(4, y);
   assert.equal(f.results.length, 1);
+});
+
+test("resizing between press and release cancels the gesture even when another button moves under it", () => {
+  const f = fixture(`root = Stack([Text("${"x".repeat(70)}"), Button("First", "first"), Button("Second", "second")])`, 30, 20);
+  const y = f.row("[ First ]");
+  const x = f.render()[y].indexOf("[ First ]") + 3;
+  f.mouse("press", x, y);
+  const resized = f.resize(80, 20);
+  assert.ok(resized[y].includes("[ Second ]"), "a different control occupies the old click row after reflow");
+  f.mouse("release", x, y);
+  f.mouse("click", x, y);
+  assert.equal(f.results.length, 0, "release must activate neither the old nor the new target");
+  f.click(x, y);
+  assert.deepEqual(f.results, [{ status: "submitted", action: "second", state: {}, values: {} }], "a fresh gesture still works after resize");
 });
 
 test("clicking a label focuses its input without selecting a different field", () => {

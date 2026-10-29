@@ -79,6 +79,14 @@ The third-party Code/Notebook Mode in `@howaboua/pi-codex-conversion` uses a sep
 
 OpenUI Lang accepts host-defined component libraries. These are terminal-specific schemas, not drop-in replacements for the differently shaped components in OpenUI's web libraries.
 
+The six components above are the initial catalog requested for this adapter, not a limit imposed by lang-core. OpenUI's separate web libraries include richer forms, layouts, charts and media components. Supporting those here requires terminal specifications, rendering and interaction for each one. Useful additions include Tabs/Sections, Checkbox/MultiSelect/TextArea, and CodeBlock/Markdown/Progress; these are not implemented yet.
+
+## Appearance
+
+All components use Pi's current theme: accent titles and selections, bold field labels and table headers, highlighted focused buttons, input boundaries, muted hints and error colors. Theme changes are reflected by the open view. The fullscreen panel centers content up to 96 columns wide; tables size columns to their contents, and the footer shortens its hints on narrow terminals. Mouse targets follow the content insets and resizing. Only the focused input shows a cursor.
+
+Use Pi's normal theme selection, for example `pi --use-theme dark --tui-mode fullscreen -e ./src/index.ts` or `--use-theme light`. See the [theme gallery](docs/themes.md) for actual terminal captures.
+
 ## Button actions
 
 Buttons accept lang-core action expressions. Local actions re-evaluate dependent Text, Table and form values while keeping the panel open. Existing string action identifiers still submit and close as before.

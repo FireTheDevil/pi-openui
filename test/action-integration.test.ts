@@ -37,7 +37,7 @@ function host() {
     const frame = lines();
     const y = frame.findIndex(line => line.includes(text));
     assert.ok(y >= 0, `Missing ${text}: ${frame.join("\n")}`);
-    const x = rowOffset ? 2 : frame[y].indexOf(text) + 1;
+    const x = frame[y].indexOf(text) + (rowOffset ? 0 : 1);
     const base: Omit<TuiMouseEvent, "type"> = {
       button: "left", x, y: y + rowOffset, screenX: x, screenY: y + rowOffset,
       width: 100, height: frame.length, shift: false, ctrl: false, alt: false,
