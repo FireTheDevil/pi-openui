@@ -1,0 +1,78 @@
+# Pi OpenUI TUI
+
+An OpenUI Lang extension for **Pi 1.4+**, using `@openuidev/lang-core` 1.0.2 and Pi's host-provided `@earendil-works/pi-tui`. No React, browser, webview, or separate terminal loop.
+
+## Run
+
+Requires Node.js 22.19+ and Pi with the `@earendil-works` package namespace (tested on Node 24).
+
+```sh
+npm ci --ignore-scripts
+pi --tui-mode fullscreen -e ./src/index.ts
+```
+
+In Pi, run `/openui-demo` or `/openui-demo --stream`. Choose a next step, enter instructions, then activate **Send to Pi**. Submission sends a user message to the active session (queued as a follow-up if Pi is busy). Escape or Ctrl+C cancels without sending a message.
+
+To persist installation, run `pi install /absolute/path/to/pi-openui-tui`. The package's `pi.extensions` manifest identifies the entry point. Pi supplies its own TUI at runtime; development dependencies are only for local checks.
+
+From GitHub, install with `pi install git:github.com/FireTheDevil/pi-openui`.
+
+The panel occupies the terminal through Pi's native overlay API. Fullscreen mode routes mouse events to the panel; `--tui-mode regular` retains keyboard interaction and leaves the mouse to the terminal.
+
+## Agent tool
+
+`show_ui({ source: "…" })` opens a native custom component and waits for an action. The extension adds lang-core's generated component prompt to Pi's system prompt while the tool is active in TUI mode.
+
+```text
+$choice = "Review";
+$note = "";
+root = Stack([
+  Text("Selected: " + $choice),
+  Select("choice", "Next step", ["Review", "Implement", "Test"], $choice),
+  Input("note", "Instructions", $note, "Optional note"),
+  Table(["Task", "Status"], [["Design", "Ready"], ["Tests", "Pending"]]),
+  Button("Send to Pi", "next_step")
+]);
+```
+
+| Component | Positional arguments |
+| --- | --- |
+| `Text` | text |
+| `Stack` | children (vertical layout) |
+| `Select` | unique name, label, string options, value or `$binding` |
+| `Input` | unique name, label, value or `$binding`, optional placeholder |
+| `Button` | label, action identifier |
+| `Table` | column labels, rows of scalar cells |
+
+Use a `Stack` root and string state variables for form bindings. Editing fields uses lang-core's store and re-evaluates dependent expressions. A button returns a tool result such as:
+
+```json
+{"status":"submitted","action":"next_step","state":{"$choice":"Test","$note":"Check resizing"},"values":{"choice":"Test","note":"Check resizing"}}
+```
+
+The tool result continues the current agent turn; it does not also inject a duplicate user message. Cancellation returns `{"status":"cancelled"}`. Invalid documents return an error with diagnostics. RPC, JSON and print modes return an explicit unsupported-mode error.
+
+OpenUI Lang accepts host-defined component libraries. These are terminal-specific schemas, not drop-in replacements for the differently shaped components in OpenUI's web libraries.
+
+## Interaction and streaming
+
+Tab / Shift+Tab moves focus; arrows change the selected option. Enter confirms a select or advances from an input; Enter / Space activates a focused button. PgUp / PgDn scrolls long content. Text wraps at the current width, tables switch to labeled records on narrow terminals, and focus follows the selected control on resize.
+
+In fullscreen mode, click a select option, click an input to position its cursor, or click a button to submit. Labels focus their controls. The wheel changes selection over a select list and scrolls the panel elsewhere. Mouse targets track wrapping, scrolling and resizing; streaming previews cannot edit or submit by mouse or keyboard.
+
+Completed documents are parsed and validated before interaction. For providers exposing incremental tool arguments, `message_update` feeds accumulated `source` text to lang-core's streaming parser and updates the same `ctx.ui.custom()` view. Inputs and submission remain disabled until tool execution validates the final document. `/openui-demo --stream` exercises this path deterministically with timed chunks. Providers without partial arguments show the completed document normally.
+
+Escape, tool/session aborts, interrupted generation and shutdown clean up the panel. Cancelling a preview prevents that tool call from reopening it. Only one panel owns focus at a time.
+
+Malformed source, unresolved references, invalid props, duplicate field names and unsupported components produce diagnostics. Documents are limited to 65,536 characters, 256 components, 32 levels, 200 table rows/options and 20 columns. Model text is stripped of terminal control sequences. Query, Mutation and external actions are not implemented; buttons only return structured data to Pi.
+
+## Development
+
+```sh
+npm run typecheck
+npm test
+```
+
+`src/model.ts` owns the library, generated prompt, parsers and evaluation. `src/view.ts` adapts evaluated nodes to native Pi input/select/text components and terminal layouts. `src/index.ts` owns Pi registration and panel lifecycle. The 51 automated tests exercise real lang-core and Pi widgets, Pi's actual extension loader, and its fullscreen mouse decoder, using simulated host/terminal boundaries.
+
+The extension was also tested in the actual Pi 1.4.0 CLI on Node 24 with a local deterministic provider: keyboard/mouse editing, resizing, streaming, submission through the session/tool loop and cancellation passed. External model providers have not been tested. Local PTY recordings and screenshot tooling are excluded from the repository and package.
