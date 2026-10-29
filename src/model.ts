@@ -1,18 +1,20 @@
 import {
-  action, createLibrary, createParser, createStore, createStreamingParser, defineComponent,
-  evaluate, evaluateRoot, isReactiveAssign, markReactive, resolveStateField, split, tokenize,
+  createParser, createStore, createStreamingParser,
+  evaluate, evaluateRoot, isReactiveAssign, resolveStateField, split, tokenize,
   type ActionPlan, type ActionStep, type ASTNode, type ElementNode, type EvaluationContext, type OpenUIError, type ParseResult,
 } from "@openuidev/lang-core";
-import { z } from "zod";
-
-export const limits = { source: 65_536, nodes: 256, depth: 32, text: 4_000, rows: 200, columns: 20, options: 200, actionSteps: 32 } as const;
+import {
+  componentSpecs, library, limits, isElement, isField, childNodes, optionItems, fieldOptions, valueSchemaFor,
+  type FieldValue,
+} from "./catalog.js";
+export { library, limits, systemPrompt, modelPrompt, isElement, isField, childNodes, optionItems, fieldOptions, type FieldValue } from "./catalog.js";
 export interface ActionSubmission {
   status: "submitted";
   action: string;
   message?: string;
   context?: unknown;
   state: Record<string, unknown>;
-  values: Record<string, string>;
+  values: Record<string, FieldValue>;
 }
 export type ActionOutcome = { status: "updated" } | ActionSubmission | { status: "error"; error: string };
 
@@ -24,54 +26,15 @@ type SourceButton = ElementNode & { [actionSource]?: unknown };
 const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 const isPlan = (value: unknown): value is ActionPlan => isRecord(value) && Array.isArray(value.steps);
 const isAST = (value: unknown): value is ASTNode => isRecord(value) && typeof value.k === "string";
-const text = z.string().max(limits.text);
-const name = z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/);
-const binding = z.string().max(limits.text);
-markReactive(binding);
-const scalar = z.union([text, z.number().finite(), z.boolean(), z.null()]);
-const specs = {
-  Text: z.object({ text }),
-  Stack: z.object({ children: z.array(z.any()).max(limits.nodes).describe("Child components, including nested Stack components") }),
-  Select: z.object({ name, label: text, options: z.array(text).min(1).max(limits.options), value: binding }),
-  Input: z.object({ name, label: text, value: binding, placeholder: text.optional() }),
-  Button: z.object({ label: text, action: z.union([name, action()]) }),
-  Table: z.object({ columns: z.array(text).min(1).max(limits.columns), rows: z.array(z.array(scalar).max(limits.columns)).max(limits.rows) }),
-};
-const descriptions: Record<keyof typeof specs, string> = {
-  Text: "Plain terminal text. Reactive expressions are evaluated before rendering.",
-  Stack: "Vertical layout. Its children must be Text, Stack, Select, Input, Button, or Table components.",
-  Select: "Single-choice keyboard list. A unique name identifies the field; value can bind to a $variable.",
-  Input: "Single-line text input. A unique name identifies the field; value can bind to a $variable.",
-  Button: "Run local @Set/@Reset actions without closing, or submit with @ToAssistant. Action([...]) runs an ordered sequence. A legacy action identifier also submits.",
-  Table: "Read-only table. Each row must have exactly as many scalar cells as columns.",
-};
-
-export const library = createLibrary({
-  root: "Stack",
-  components: Object.entries(specs).map(([componentName, props]) => defineComponent({
-    name: componentName, props, description: descriptions[componentName as keyof typeof specs], component: componentName,
-  })),
-});
-
-export const systemPrompt = library.prompt({
-  bindings: true, builtinFunctions: true, toolCalls: false, editMode: false,
-  preamble: "Use show_ui to ask the user for structured input in Pi's native terminal. Put a complete OpenUI Lang document in its source argument.",
-  additionalRules: [
-    "Always declare root = Stack([...]). Use only the six supplied components; Stack children are component calls or references.",
-    "Input and Select names must be unique identifiers. Bind their value argument to a declared string $variable. Select options are nonempty, unique strings.",
-    "Button actions support @Set($variable, value), @Reset($variable, ...), @ToAssistant(message, context?), and ordered Action([...]) with at most 32 steps. Local actions keep the form open; @ToAssistant submits current fields/state and closes it. Use at most one @ToAssistant, as the last step. Its message/context see preceding state changes.",
-    "Declare every @Set/@Reset target with $variable = default before using it. Reset requires at least one target. All steps commit together only if the resulting UI remains valid; otherwise state is unchanged. Legacy Button(label, \"submit\") is also supported. Query, Mutation, @Run, @OpenUrl, custom actions, URLs, scripts and external tools are unsupported.",
-    "Table rows contain strings, numbers, booleans or null and match the column count. Keep documents compact for a terminal.",
-    "Escape and Ctrl+C cancel. Streaming previews cannot submit until the document is complete and valid.",
-  ],
-  examples: ['$choice = "One"\n$note = ""\nroot = Stack([Text("Choose an option"), Select("choice", "Choice", ["One", "Two"], $choice), Input("note", "Note", $note, "Optional"), Button("Reset", @Reset($choice, $note)), Button("Submit", @ToAssistant("Use my choices", {choice: $choice, note: $note}))])', '$count = 0\nroot = Stack([Text("Count: " + $count), Button("Increment", @Set($count, $count + 1)), Button("Increment and send", Action([@Set($count, $count + 1), @ToAssistant("Count: " + $count, {count: $count})]))])'],
-});
-export const modelPrompt = systemPrompt;
-
-export function isElement(value: unknown): value is ElementNode {
-  return !!value && typeof value === "object" && (value as ElementNode).type === "element";
+function validDate(value: string): boolean {
+  const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!parts) return false;
+  const [, yearText, monthText, dayText] = parts;
+  const year = Number(yearText), month = Number(monthText), day = Number(dayText);
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  return day <= [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
 }
-
 // lang-core deliberately recovers incomplete syntax and skips non-assignment lines.
 // Check the document envelope so completed tool calls cannot silently lose bad lines.
 // Expression parsing and all evaluation still belong to lang-core.
@@ -186,23 +149,118 @@ export class DocumentModel {
     this.refresh();
   }
 
-  fieldValue(node: ElementNode): string {
+  fieldValue(node: ElementNode): FieldValue {
     const value = this.field(node).value;
-    return typeof value === "string" ? value : "";
+    if (valueSchemaFor(node)?.safeParse(value).success) return value as FieldValue;
+    return this.emptyFieldValue(node);
   }
 
-  setField(node: ElementNode, value: string): void {
-    if (this.disposed || this.streaming || !this.valid || value.length > limits.text) return;
-    if (node.typeName !== "Input" && node.typeName !== "Select") return;
-    if (node.typeName === "Select" && !(node.props.options as string[]).includes(value)) return;
-    this.field(node).setValue(value);
-    this.refresh();
+  setField(node: ElementNode, value: FieldValue): void {
+    if (this.disposed || this.streaming || !this.valid || !isField(node) || this.isDisabled(node) || !this.nodePath(node)) return;
+    if (!valueSchemaFor(node)?.safeParse(value).success) return;
+    const options = optionItems(node);
+    if (options.length) {
+      const next = Array.isArray(value) ? value : [value];
+      if (new Set(next).size !== next.length || next.some(item => !options.some(option => option.value === item))) return;
+      const previous = this.fieldValue(node);
+      const before = Array.isArray(previous) ? previous : [previous];
+      if (Array.isArray(value)) {
+        if (options.some(option => option.disabled && before.includes(option.value) !== next.includes(option.value))) return;
+      } else if (value !== previous && options.some(option => option.disabled && option.value === value)) return;
+    }
+    // Keep malformed bindings/dependent option changes from wedging an editable
+    // form. Ordinary field errors (required/range/date/manual) are still editable.
+    const originalStore = this.store;
+    const originalFields = this.fields;
+    const stagedStore = createStore();
+    stagedStore.initialize(originalStore.getSnapshot(), {});
+    this.store = stagedStore;
+    this.fields = new Map(originalFields);
+    try {
+      this.field(node).setValue(Array.isArray(value) ? [...value] : value);
+      this.refresh();
+      if (!this.valid) { this.fields = originalFields; return; }
+      for (const [key, next] of Object.entries(stagedStore.getSnapshot())) {
+        if (!Object.is(next, originalStore.get(key))) originalStore.set(key, next);
+      }
+    } catch {
+      this.fields = originalFields;
+    } finally {
+      this.store = originalStore;
+      stagedStore.dispose();
+      this.refresh();
+    }
   }
 
-  setValue(field: string, value: string): void {
-    if (this.disposed || value.length > limits.text || !/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(field)) return;
+  setValue(field: string, value: FieldValue): void {
+    if (this.disposed || this.streaming || !this.valid || !/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(field)) return;
+    try { this.checkData(value, "State value"); } catch { return; }
     this.store.set(field, value);
     this.refresh();
+  }
+
+  /** User-correctable errors do not make the document invalid or disable editing. */
+  get fieldErrors(): Record<string, string> {
+    const errors = new Map<string, string>();
+    const visit = (node: ElementNode): void => {
+      if (isField(node)) {
+        const error = this.fieldError(node);
+        if (error) errors.set(String(node.props.name), error);
+      }
+      for (const child of childNodes(node)) visit(child);
+    };
+    if (this.root) visit(this.root);
+    return Object.fromEntries(errors);
+  }
+
+  fieldError(node: ElementNode): string | undefined {
+    if (!isField(node)) return;
+    const settings = fieldOptions(node);
+    if (this.isDisabled(node)) return;
+    if (settings.error?.trim()) return settings.error;
+    const value = this.fieldValue(node);
+    if (settings.required) {
+      if (typeof value === "boolean" && !value) return "Must be checked.";
+      if (typeof value === "string" && !value.trim() || Array.isArray(value) && !value.length) return "Required.";
+    }
+    if (node.typeName === "NumberInput" || node.typeName === "Slider") {
+      const min = node.typeName === "Slider" ? node.props.min as number : settings.min;
+      const max = node.typeName === "Slider" ? node.props.max as number : settings.max;
+      const numeric = value as number;
+      if (min !== undefined && numeric < min) return `Must be at least ${min}.`;
+      if (max !== undefined && numeric > max) return `Must be at most ${max}.`;
+    }
+    if (node.typeName === "DatePicker" && value !== "") {
+      if (typeof value !== "string" || !validDate(value)) return "Use a valid YYYY-MM-DD date.";
+      if (settings.minDate && value < settings.minDate) return `Date must be on or after ${settings.minDate}.`;
+      if (settings.maxDate && value > settings.maxDate) return `Date must be on or before ${settings.maxDate}.`;
+    }
+  }
+
+  /** Disabled page navigation also disables its pages, including hidden pages. */
+  isDisabled(node: ElementNode): boolean {
+    if (fieldOptions(node).disabled) return true;
+    const path = this.nodePath(node);
+    if (!path || !this.root) return false;
+    let ancestor: ElementNode | undefined = this.root;
+    for (const index of path) {
+      if (!ancestor) break;
+      if ((ancestor.typeName === "Tabs" || ancestor.typeName === "Steps") && fieldOptions(ancestor).disabled) return true;
+      ancestor = childNodes(ancestor)[index];
+    }
+    return false;
+  }
+
+  private submissionError(): string | undefined {
+    const errors = Object.entries(this.fieldErrors);
+    return errors.length ? `Cannot submit: ${errors.map(([field, error]) => `${field}: ${error}`).join("; ")}` : undefined;
+  }
+
+  private emptyFieldValue(node: ElementNode): FieldValue {
+    if (node.typeName === "Checkbox" || node.typeName === "Toggle") return false;
+    if (node.typeName === "NumberInput" || node.typeName === "Slider") return 0;
+    if (node.typeName === "MultiSelect") return [];
+    return "";
   }
 
   /** Execute a complete button action transaction; the view decides when to close. */
@@ -211,8 +269,12 @@ export class DocumentModel {
     if (this.disposed || this.streaming || !this.valid || !this.result) return fail("Actions require a complete, valid document.");
     const path = this.nodePath(node);
     if (!path || node.typeName !== "Button") return fail("This button is no longer part of the current UI.");
+    if (this.isDisabled(node)) return fail("This button is disabled.");
     const initialAction = node.props.action;
-    if (typeof initialAction === "string") return { status: "submitted", action: initialAction, state: this.state, values: this.formValues };
+    if (typeof initialAction === "string") {
+      const error = this.submissionError();
+      return error ? fail(error) : { status: "submitted", action: initialAction, state: this.state, values: this.formValues };
+    }
 
     const originalStore = this.store;
     let stagedStore: ReturnType<typeof createStore> | undefined;
@@ -275,6 +337,8 @@ export class DocumentModel {
       }
       this.refresh();
       if (!this.valid) throw new Error(`Action would make the UI invalid: ${this.diagnostics.join("; ")}`);
+      const submissionError = submission ? this.submissionError() : undefined;
+      if (submissionError) throw new Error(submissionError);
       const snapshot = this.store.getSnapshot();
       this.store = originalStore;
       for (const [target, pristine] of changes) this.store.set(target, snapshot[target], { pristine });
@@ -292,8 +356,7 @@ export class DocumentModel {
   private nodePath(target: ElementNode): number[] | undefined {
     const find = (node: ElementNode, path: number[]): number[] | undefined => {
       if (node === target) return path;
-      if (node.typeName !== "Stack") return;
-      for (const [index, child] of (node.props.children as ElementNode[]).entries()) {
+      for (const [index, child] of childNodes(node).entries()) {
         const found = find(child, [...path, index]);
         if (found) return found;
       }
@@ -303,7 +366,7 @@ export class DocumentModel {
 
   private atPath(root: ElementNode | null, path: number[]): ElementNode | undefined {
     let node: ElementNode | undefined = root ?? undefined;
-    for (const index of path) node = node?.typeName === "Stack" ? (node.props.children as ElementNode[])[index] : undefined;
+    for (const index of path) node = node ? childNodes(node)[index] : undefined;
     return node;
   }
 
@@ -360,11 +423,14 @@ export class DocumentModel {
     if (JSON.stringify(value).length > limits.source) throw new Error(`${label} exceeds ${limits.source} characters.`);
   }
 
-  get formValues(): Record<string, string> {
-    const values = new Map<string, string>();
+  get formValues(): Record<string, FieldValue> {
+    const values = new Map<string, FieldValue>();
     const visit = (node: ElementNode) => {
-      if (node.typeName === "Input" || node.typeName === "Select") values.set(node.props.name as string, this.fieldValue(node));
-      if (node.typeName === "Stack") for (const child of node.props.children as unknown[]) if (isElement(child)) visit(child);
+      if (isField(node)) {
+        const value = this.fieldValue(node);
+        values.set(node.props.name as string, Array.isArray(value) ? [...value] : value);
+      }
+      for (const child of childNodes(node)) visit(child);
     };
     if (this.root) visit(this.root);
     return Object.fromEntries(values);
@@ -383,7 +449,7 @@ export class DocumentModel {
   }
 
   private field(node: ElementNode) {
-    return resolveStateField<string>(String(node.props.name), node.props.value, this.store, this.context,
+    return resolveStateField<FieldValue>(String(node.props.name), node.props.value, this.store, this.context,
       (key) => this.fields.get(key), (key, value) => { this.fields.set(key, value); });
   }
 
@@ -401,39 +467,77 @@ export class DocumentModel {
         const names = new Set<string>();
         const validate = (node: ElementNode, depth: number): ElementNode | null => {
           if (++count > limits.nodes || depth > limits.depth) throw new Error("Document exceeds the component count or nesting limit.");
-          const schema = specs[node.typeName as keyof typeof specs];
+          const schema = Object.hasOwn(componentSpecs, node.typeName) ? componentSpecs[node.typeName as keyof typeof componentSpecs] : undefined;
           if (!schema) { this.diagnostics.push(`Unsupported component: ${node.typeName}`); return null; }
           const props = { ...node.props };
+          // OpenUI uses null to skip an optional positional argument before a
+          // later one, such as Input(..., null, {required: true}).
+          for (const [key, property] of Object.entries(schema.shape)) {
+            if (props[key] === null && property.isOptional()) delete props[key];
+          }
           // action() describes source/legacy data. lang-core evaluates native
           // action expressions into ActionPlan, which the dispatcher validates.
           if (node.typeName === "Button" && isPlan(props.action)) props.action = "action";
-          if (node.typeName === "Input" || node.typeName === "Select") {
+          if (isField(node)) {
             if (isReactiveAssign(props.value) && !/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(props.value.target)) throw new Error("Invalid state binding.");
             const resolved = this.field(node).value;
-            props.value = resolved ?? (this.streaming ? "" : resolved);
+            props.value = resolved ?? (this.streaming ? this.emptyFieldValue(node) : resolved);
             if (names.has(String(props.name))) this.diagnostics.push(`Duplicate field name: ${props.name}`);
             names.add(String(props.name));
+          }
+          if (node.typeName === "Tree") {
+            let treeCount = 0;
+            const boundTree = (items: unknown, treeDepth: number): void => {
+              if (!Array.isArray(items)) return;
+              for (const item of items) {
+                if (++treeCount > limits.treeNodes || treeDepth > limits.treeDepth) throw new Error(`Tree exceeds ${limits.treeNodes} nodes or depth ${limits.treeDepth}.`);
+                if (isRecord(item)) boundTree(item.children, treeDepth + 1);
+              }
+            };
+            boundTree(props.nodes, 1);
           }
           const checked = schema.safeParse(props);
           if (!checked.success) {
             this.diagnostics.push(...checked.error.issues.map((issue) => `${node.typeName}.${issue.path.join(".")}: ${issue.message}`));
             return null;
           }
-          if (node.typeName === "Select") {
-            const options = props.options as string[];
-            if (new Set(options).size !== options.length) this.diagnostics.push("Select options must be unique.");
-            if (!this.streaming && !options.includes(props.value as string)) this.diagnostics.push(`Select ${props.name} value must be one of its options.`);
+          if (["Select", "MultiSelect", "Tree", "Tabs", "Steps"].includes(node.typeName)) {
+            const options = optionItems(node).map(option => option.value);
+            if (new Set(options).size !== options.length) this.diagnostics.push(`${node.typeName} option values must be unique.`);
+            const selected = Array.isArray(props.value) ? props.value : [props.value];
+            if (new Set(selected).size !== selected.length) this.diagnostics.push(`${node.typeName} selections must be unique.`);
+            if (!this.streaming && selected.some(value => !options.includes(value as string))) this.diagnostics.push(`${node.typeName} ${props.name} value must be one of its options.`);
           }
           if (node.typeName === "Table" && (props.rows as unknown[][]).some((row) => row.length !== (props.columns as string[]).length)) this.diagnostics.push("Table rows must match the number of columns.");
-          if (node.typeName === "Stack") {
+          if (node.typeName === "NumberInput" || node.typeName === "Slider") {
+            const settings = fieldOptions(node);
+            const min = node.typeName === "Slider" ? props.min as number : settings.min;
+            const max = node.typeName === "Slider" ? props.max as number : settings.max;
+            if (min !== undefined && max !== undefined && min > max) this.diagnostics.push(`${node.typeName} minimum must not exceed maximum.`);
+          }
+          if (node.typeName === "DatePicker") {
+            const { minDate, maxDate } = fieldOptions(node);
+            if (minDate !== undefined && !validDate(minDate) || maxDate !== undefined && !validDate(maxDate)) this.diagnostics.push("DatePicker bounds must be valid YYYY-MM-DD dates.");
+            if (minDate && maxDate && minDate > maxDate) this.diagnostics.push("DatePicker minDate must not exceed maxDate.");
+          }
+          if (node.typeName === "Progress" && (props.value as number) > ((props.max ?? 100) as number)) this.diagnostics.push("Progress value must not exceed max.");
+          const validateChildren = (items: unknown[]): ElementNode[] => {
             const children: ElementNode[] = [];
-            for (const child of props.children as unknown[]) {
+            for (const child of items) {
               if (child == null && this.streaming) continue;
-              if (!isElement(child)) { this.diagnostics.push("Stack children must be components."); continue; }
+              if (!isElement(child)) { this.diagnostics.push(`${node.typeName} children must be components.`); continue; }
               const validChild = validate(child, depth + 1);
               if (validChild) children.push(validChild);
             }
-            return { ...node, props: { ...node.props, children } };
+            return children;
+          };
+          if (["Stack", "Row", "Section", "Card"].includes(node.typeName)) {
+            return { ...node, props: { ...node.props, children: validateChildren(props.children as unknown[]) } };
+          }
+          if (node.typeName === "Tabs" || node.typeName === "Steps") {
+            const items = (props.items as { value: string; label: string; children: unknown[] }[])
+              .map(item => ({ ...item, children: validateChildren(item.children) }));
+            return { ...node, props: { ...node.props, items } };
           }
           return node;
         };

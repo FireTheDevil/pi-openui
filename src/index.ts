@@ -1,6 +1,6 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { ACTIONS_DEMO_SOURCE, DEMO_SOURCE } from "./demo.js";
+import { ACTIONS_DEMO_SOURCE, CATALOG_DEMO_SOURCE, DEMO_SOURCE } from "./demo.js";
 import { DocumentModel, limits, modelPrompt } from "./model.js";
 import { OpenUIView, type UIResult } from "./view.js";
 
@@ -13,7 +13,7 @@ const outcomeSchema = Type.Union([
     message: Type.Optional(Type.String()),
     context: Type.Optional(Type.Unknown()),
     state: Type.Record(Type.String(), Type.Unknown()),
-    values: Type.Record(Type.String(), Type.String()),
+    values: Type.Record(Type.String(), Type.Union([Type.String(), Type.Boolean(), Type.Number(), Type.Array(Type.String())])),
   }),
   Type.Object({ status: Type.Literal("cancelled") }),
   Type.Object({ status: Type.Literal("error"), error: Type.String() }),
@@ -184,15 +184,15 @@ export default function openuiExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("openui-demo", {
-    description: "Try OpenUI components; --actions demonstrates stateful buttons, --stream previews incremental parsing.",
+    description: "Try OpenUI components; --actions demonstrates buttons, --catalog shows the full library, --stream previews parsing.",
     async handler(args, ctx) {
       if (ctx.mode !== "tui") {
         ctx.ui.notify("/openui-demo requires Pi interactive TUI mode.", "error");
         return;
       }
       const flags = args.trim() ? args.trim().split(/\s+/) : [];
-      if (new Set(flags).size !== flags.length || flags.some(flag => flag !== "--stream" && flag !== "--actions")) {
-        ctx.ui.notify("Usage: /openui-demo [--actions] [--stream]", "error");
+      if (new Set(flags).size !== flags.length || flags.some(flag => !["--stream", "--actions", "--catalog"].includes(flag)) || (flags.includes("--actions") && flags.includes("--catalog"))) {
+        ctx.ui.notify("Usage: /openui-demo [--actions | --catalog] [--stream]", "error");
         return;
       }
       if (visible) {
@@ -201,14 +201,14 @@ export default function openuiExtension(pi: ExtensionAPI): void {
       }
       const panel = create(`demo:${Date.now()}`);
       const streaming = flags.includes("--stream");
-      const source = flags.includes("--actions") ? ACTIONS_DEMO_SOURCE : DEMO_SOURCE;
+      const source = flags.includes("--catalog") ? CATALOG_DEMO_SOURCE : flags.includes("--actions") ? ACTIONS_DEMO_SOURCE : DEMO_SOURCE;
       try {
         update(panel, streaming ? "" : source, streaming);
-        show(panel, ctx, flags.includes("--actions") ? "OpenUI actions demo" : "OpenUI demo");
+        show(panel, ctx, flags.includes("--catalog") ? "OpenUI component catalog" : flags.includes("--actions") ? "OpenUI actions demo" : "OpenUI demo");
         if (streaming && !panel.result) {
           let offset = 0;
           panel.timer = setInterval(() => {
-            offset = Math.min(source.length, offset + 24);
+            offset = Math.min(source.length, offset + (flags.includes("--catalog") ? 120 : 24));
             const pending = offset < source.length;
             update(panel, source.slice(0, offset), pending);
             if (!pending && panel.timer) clearInterval(panel.timer);

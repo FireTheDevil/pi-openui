@@ -15,6 +15,8 @@ In Pi, run `/openui-demo` or `/openui-demo --stream`. Choose a next step, enter 
 
 Run `/openui-demo --actions` to try buttons that update state without closing the panel: increment a counter, apply an ordered plan, reset the fields, and send the result to Pi. Add `--stream` to preview this demo incrementally; it remains read-only until complete.
 
+Run `/openui-demo --catalog` to explore all **25 components** across Forms, Layout, Display and Advanced pages. Try the calendar, tree, multiline editor, workflow buttons and typed fields. Complete the required fields, then submit the result to Pi. See the [component reference](docs/components.md) and [actual Pi screenshots](docs/catalog-demo.md). This demo also accepts `--stream`.
+
 To persist installation, run `pi install /absolute/path/to/pi-openui-tui`. The package's `pi.extensions` manifest identifies the entry point. Pi supplies its own TUI at runtime; development dependencies are only for local checks.
 
 From GitHub, install with `pi install git:github.com/FireTheDevil/pi-openui`.
@@ -37,16 +39,14 @@ root = Stack([
 ]);
 ```
 
-| Component | Positional arguments |
+| Family | Components |
 | --- | --- |
-| `Text` | text |
-| `Stack` | children (vertical layout) |
-| `Select` | unique name, label, string options, value or `$binding` |
-| `Input` | unique name, label, value or `$binding`, optional placeholder |
-| `Button` | label, action expression or legacy action identifier |
-| `Table` | column labels, rows of scalar cells |
+| Fields | Input, Select, Checkbox, MultiSelect, TextArea, NumberInput, Toggle, Slider, DatePicker, Tree |
+| Layout and navigation | Stack, Row, Section, Card, Tabs, Steps |
+| Display | Text, Markdown, CodeBlock, List, Badge, Progress, Table, Divider |
+| Actions | Button |
 
-Use a `Stack` root and string state variables for form bindings. Editing fields uses lang-core's store and re-evaluates dependent expressions. A button returns a tool result such as:
+Use a `Stack` root and declared state variables of the appropriate type for form bindings. Values remain strings, booleans, numbers or string arrays through editing and submission. The [component reference](docs/components.md) lists every positional signature and setting; the original six signatures remain compatible. Editing fields uses lang-core's store and re-evaluates dependent expressions. A button returns a tool result such as:
 
 ```json
 {"status":"submitted","action":"next_step","state":{"$choice":"Test","$note":"Check resizing"},"values":{"choice":"Test","note":"Check resizing"}}
@@ -79,11 +79,11 @@ The third-party Code/Notebook Mode in `@howaboua/pi-codex-conversion` uses a sep
 
 OpenUI Lang accepts host-defined component libraries. These are terminal-specific schemas, not drop-in replacements for the differently shaped components in OpenUI's web libraries.
 
-The six components above are the initial catalog requested for this adapter, not a limit imposed by lang-core. OpenUI's separate web libraries include richer forms, layouts, charts and media components. Supporting those here requires terminal specifications, rendering and interaction for each one. Useful additions include Tabs/Sections, Checkbox/MultiSelect/TextArea, and CodeBlock/Markdown/Progress; these are not implemented yet.
+The catalog is defined with Zod schemas supplied to lang-core. It covers terminal forms, layouts, navigation and structured output; it does not implement every component in OpenUI's separate web libraries. Charts, media, rich document editing and browser-specific interactions remain outside this catalog.
 
 ## Appearance
 
-All components use Pi's current theme: accent titles and selections, bold field labels and table headers, highlighted focused buttons, input boundaries, muted hints and error colors. Theme changes are reflected by the open view. The fullscreen panel centers content up to 96 columns wide; tables size columns to their contents, and the footer shortens its hints on narrow terminals. Mouse targets follow the content insets and resizing. Only the focused input shows a cursor.
+All components use Pi's current theme: accent titles and selections, bold field labels and table headers, highlighted focused buttons, input boundaries, muted hints and error colors. Text supports semantic tones, bold and italic; buttons support primary, secondary and danger variants. Theme changes are reflected by the open view. The fullscreen panel centers content up to 96 columns wide; Rows stack vertically on narrow terminals, tables adapt to available space, and the footer shortens its hints. Mouse targets follow nested layouts, content insets and resizing. Only the focused editor shows a cursor.
 
 Use Pi's normal theme selection, for example `pi --use-theme dark --tui-mode fullscreen -e ./src/index.ts` or `--use-theme light`. See the [theme gallery](docs/themes.md) for actual terminal captures.
 
@@ -123,9 +123,11 @@ See the [action demo screenshots](docs/action-demo.md) for native rendering, loc
 
 ## Interaction and streaming
 
-Tab / Shift+Tab moves focus; arrows change the selected option. Enter confirms a select or advances from an input; Enter / Space activates a focused button. PgUp / PgDn scrolls long content. Text wraps at the current width, tables switch to labeled records on narrow terminals, and focus follows the selected control on resize.
+Tab / Shift+Tab moves focus; arrows navigate choices, pages, calendars and trees. Enter confirms a select or advances from an input; Enter / Space activates a focused button. Space toggles checkboxes and multiple selections. TextArea uses Enter for a newline and Ctrl+Enter to advance. PgUp / PgDn scrolls long content or changes the focused calendar's month. Text wraps at the current width, tables switch to labeled records on narrow terminals, and focus follows the selected control on resize. See the [control key reference](docs/components.md#keyboard-and-mouse) for details.
 
 In fullscreen mode, click a select option, click an input to position its cursor, or click a button to run its action. Labels focus their controls. The wheel changes selection over a select list and scrolls the panel elsewhere. Mouse targets track wrapping, scrolling and resizing; streaming previews cannot edit or submit by mouse or keyboard.
+
+Fields support descriptions, required values, disabled states and explicit errors. Validation keeps the form editable while blocking submission, including errors on inactive Tabs/Steps pages; submission reveals and focuses the invalid field. Hidden pages retain their values and participate in reset and submission. Disabled fields are skipped during focus and validation but their values are still returned; disabling Tabs or Steps also disables its descendants. A numeric draft stays visible while invalid and cannot silently submit an older number.
 
 Completed documents are parsed and validated before interaction. For providers exposing incremental tool arguments, `message_update` feeds accumulated `source` text to lang-core's streaming parser and updates the same `ctx.ui.custom()` view. Inputs and submission remain disabled until tool execution validates the final document. `/openui-demo --stream` exercises this path deterministically with timed chunks. Providers without partial arguments show the completed document normally.
 
@@ -140,6 +142,6 @@ npm run typecheck
 npm test
 ```
 
-`src/model.ts` owns the library, generated prompt, parsers, evaluation and action dispatch. `src/view.ts` adapts evaluated nodes to native Pi input/select/text components and terminal layouts. `src/index.ts` owns Pi registration and panel lifecycle. Automated tests exercise real lang-core and Pi widgets, ordered actions, Pi's actual extension loader, its fullscreen mouse decoder, and native codemode's QuickJS worker, using simulated host/terminal boundaries.
+`src/catalog.ts` defines the Zod component specifications and generated model prompt. `src/model.ts` owns parsing, evaluation, typed state, validation and action dispatch. `src/view.ts` composes layouts and routes focus and pointer events; `src/controls.ts`, `src/displays.ts` and `src/presentation.ts` implement widgets, content and theme handling. `src/index.ts` owns Pi registration and panel lifecycle. Automated tests exercise real lang-core and Pi widgets, hidden-page validation, ordered actions, malformed/streaming input, resizing, Pi's actual extension loader, its fullscreen mouse decoder, and native codemode's QuickJS worker, using simulated host/terminal boundaries.
 
-The extension was also tested in the actual Pi 1.4.0 CLI on Node 24 with a local deterministic provider: keyboard/mouse editing, local actions, reset, resizing, streaming, submission through the session/tool loop and cancellation passed. Native code-only mode was checked end to end, including nested tool IDs, structured results, prompt availability and cancellation. External model providers have not been tested. The gallery captures actual PTY output; recording and screenshot tooling are excluded from the repository and package.
+The extension was also tested in the actual Pi 1.4.0 CLI on Node 24 with a local deterministic provider, in both dark and light themes. All 25 components, keyboard/mouse editing, local actions, reset, resizing, streaming, submission through the session/tool loop and cancellation passed. Native code-only mode returned typed form results end to end, with nested tool IDs, prompt availability and cancellation verified. External model providers have not been tested. The [catalog gallery](docs/catalog-demo.md) captures actual PTY output; recording and screenshot tooling are excluded from the repository and package.

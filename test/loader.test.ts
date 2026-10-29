@@ -29,7 +29,7 @@ test("Pi's actual loader resolves TypeScript siblings and shares its native TUI"
       }};
       const source = 'root = Stack([Input("note", "Note", ""), Button("Send", "send")]);';
       const pending = tool.execute("loader", { source }, undefined, undefined, ctx);
-      assert.ok(view.controls[0].widget instanceof Input, "must use host Pi Input constructor");
+      assert.ok(view.controls[0].widget.native instanceof Input, "must use host Pi Input constructor");
       view.render(60);
       view.handleInput("hello");
       view.handleInput("\\t");
