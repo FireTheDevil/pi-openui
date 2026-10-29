@@ -171,11 +171,12 @@ export default function openuiExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "show_ui",
     label: "OpenUI",
-    description: "Show an interactive native terminal UI from an OpenUI Lang document. Local Set/Reset button actions update the open panel; ToAssistant or a legacy action identifier submits current values. Returns submission or cancellation. Requires interactive Pi TUI mode.",
-    promptSnippet: "Display an OpenUI Lang form or table in the terminal and wait for the user's action.",
+    description: "Show an interactive native terminal UI for structured choices, comparisons, forms or scenario exploration. Use a complete OpenUI Lang document. Local Set/Reset actions update the open panel; ToAssistant or a legacy action identifier submits current values. Returns submission, cancellation or diagnostics. Requires interactive Pi TUI mode.",
+    promptSnippet: "Help the user choose, compare or explore through an interactive terminal UI; waits for their action.",
     promptGuidelines: [
       "Use the OpenUI component library in the openui prompt section. Submit a complete program in source, with root = Stack([...]).",
-      "When available, read the openui skill for component selection and form design. Prefer the smallest form that fits the task. Optional summary.title and summary.fields choose the receipt title and field names; Pi handles theme and status. A submitted form means user input was received, not that the requested work was executed.",
+      "Use UI proactively when interaction helps; keep simple answers and requested plain-text comparisons in prose. When available, read the openui skill for interaction patterns and component selection. Ground displayed facts in context or tools and bind exploratory controls to visible local calculations.",
+      "Optional summary.title and summary.fields choose the receipt title and field names; Pi handles theme and status. Continue from the actual submitted values, respect cancellation, and use error diagnostics to repair invalid documents. A submitted form means user input was received, not that the requested work was executed.",
       "In native codemode, await tools.show_ui({ source }) and inspect result.status (submitted, cancelled or error). It waits for the user; do not set a short script timeout or open multiple panels concurrently. Include the result in script output if Pi needs to respond to it.",
     ],
     parameters: Type.Object({

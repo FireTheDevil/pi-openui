@@ -1,13 +1,40 @@
 ---
 name: openui
-description: Design native Pi terminal forms and structured choices with show_ui and OpenUI Lang. Use when collecting several related answers, presenting selectable options, building a small workflow, or choosing components and submission-summary fields. Covers typed state, local actions, native code mode, cancellation and themed receipts.
+description: Choose and build useful interactive terminal interfaces with show_ui and OpenUI Lang. Use for structured decisions, comparing alternatives, exploring how inputs change outcomes, collecting related answers, or guiding a workflow, even when the user has not explicitly requested a UI. Covers component selection, grounded data, reactive state, actions, native code mode and themed receipts.
 ---
 
 # OpenUI in Pi
 
-Use `show_ui` when a form, choice list or small workflow helps the user provide structured input. Keep ordinary explanations, progress updates and simple conversational answers in the conversation. Follow the user's requested interaction style. Prefer the smallest interface that makes the decision clear.
+Use an interactive UI when it helps the user make a decision, compare alternatives, or understand how changing an input affects an outcome. Choose it proactively when useful; the user does not need to request a UI explicitly. Follow the user's preferred medium, and choose the smallest interface that improves the task.
 
 The active `openui` prompt section supplies the component schemas and language rules. Read the [component reference](../../docs/components.md) when you need an exact signature or setting. This skill guides design; use only the supplied terminal catalog. No React, HTML, browser or webview is involved.
+
+## Decide whether interaction helps
+
+Start with the user's goal and available context. Identify what the user should be able to choose, adjust, compare or inspect. If there is no useful interaction, answer directly. Simple facts, short explanations, ordinary progress updates and already-authorized one-step edits usually need prose or the normal tools. A small static comparison can be a table in the conversation. Respect a request for plain text.
+
+`show_ui` opens a modal panel and waits until the user submits or cancels. That interruption should have a purpose. Avoid panels that only decorate a response or demand an acknowledgement before routine work can continue. When the user needs an exported chart, document or other shareable artifact, create the requested artifact using the appropriate tools; a terminal panel is not an export format.
+
+Choose an interaction pattern before selecting components:
+
+| Task | Useful composition |
+| --- | --- |
+| Collect several related decisions | Brief purpose, Section with typed fields, one final action |
+| Compare alternatives and choose | Table with meaningful comparison columns, Select with readable option labels, final choice button |
+| Explore a scenario or relationship | NumberInput/Slider/Toggle, derived Text or Table that updates immediately, Reset and a final use-this-choice button |
+| Move through a short workflow | Steps with clearly labeled local Next/Back buttons and a final submit action; enforce any necessary validation explicitly |
+| Inspect a hierarchy and select an item | Tree with useful labels, relevant supporting details, final selection button |
+
+## Ground and compose the interface
+
+- Use available tools to gather relevant facts missing from context before opening the panel. Use supplied or verified data, preserve units and time ranges, and label assumptions or illustrative numbers. Do not invent availability, prices, measured progress or completed actions.
+- Reuse known preferences and prior answers. Ask only for missing decisions, choose reasonable defaults, and leave genuinely optional fields optional. Do not add agreement checkboxes or extra steps to ordinary forms without a task-specific reason.
+- Give the screen a clear hierarchy: purpose, essential controls, visible consequences or comparison, then the final action. Use short labels and plain-language descriptions. Group related fields; introduce Tabs, Steps or Cards only when they reduce complexity.
+- Make controls meaningful. In an exploration, changing a bound value should update relevant Text, Table or Progress expressions immediately. Keep these local calculations inside the open form rather than requiring another model call for each change. Offer Reset when experimentation is useful.
+- Local actions cannot fetch fresh data, run tools or execute scripts. If a choice requires new evidence or external work, submit the choice back to the agent, use the appropriate tools, and continue from the result. Do not label a local state update as a completed deployment, live refresh or actual measured progress.
+- Treat Pi's keyboard navigation, resizing and theme as part of the design. Avoid meaning conveyed only by color, excessive nesting, decorative borders, long option labels or layouts that depend on a wide terminal. Use semantic styling sparingly.
+
+Before calling the tool, check that the document is complete, every control serves the task, dependent values are bound correctly, and the final button accurately describes what submitting does.
 
 ## Choose components by the user's task
 
@@ -51,9 +78,9 @@ Submit a complete OpenUI Lang document in `source`, without Markdown fences. Str
 - `@ToAssistant(message, context?)` submits the current typed values and closes the panel. If used in a plan, it must be the final step. A legacy string action identifier also submits.
 - All update targets must be declared variables. Query, Mutation, `@Run`, `@OpenUrl` and external tool execution are unsupported button actions.
 
-Check the result's `status`. On `submitted`, use `values` for field answers and `context` for any supplied action payload. On `cancelled`, stop that input flow and respect the cancellation. On `error`, use the diagnostics to correct the document or explain the problem. Do not turn cancellation into an automatic retry.
+Check the result's `status`. On `submitted`, use the actual `values` for field answers and `context` for any supplied action payload; do not reconstruct answers from defaults or the receipt. On `cancelled`, stop that input flow and respect the cancellation. On `error`, use the diagnostics to correct the specific problem instead of resending the same document. If a valid UI cannot be produced, explain the issue and use an appropriate conversational fallback. Do not turn cancellation into an automatic retry.
 
-Submission means the user supplied input. Continue the authorized task using that input; do not claim that files changed, a deployment ran or another external action completed merely because the form was submitted.
+Submission means the user supplied input. Continue the authorized task using that input, with a concise explanation of the next action when useful. The receipt already acknowledges the decision; avoid repeating its entire table or dumping JSON into the conversational reply. Do not claim that files changed, a deployment ran or another external action completed merely because the form was submitted.
 
 ## Choose the submission summary
 
@@ -71,6 +98,8 @@ Optionally pass `summary` alongside `source`:
 Use a short, neutral `title` naming the decision, such as “Review configuration”. Avoid titles that imply work has already executed. `fields` is an ordered list of field names, not `$variable` names or labels. Select the important user decisions; omit tab/step navigation and incidental internal state. Omitting `summary` uses automatic defaults. Selecting fewer receipt fields changes presentation only: all submitted values remain available to the agent. Unknown field names are ignored, so use the same names as the document.
 
 The renderer chooses status wording, colors, spacing and truncation using Pi's active theme. Expanded details remain available. Native code mode displays the receipt separately in the transcript; mixed scripts retain their other tool output. Preserve that output and any data the model needs.
+
+For a comparison, summarize the chosen alternative and key parameters. For an exploration, summarize the inputs the user settled on and include derived outputs in the action context when useful. For a workflow, summarize the final decisions rather than the tab or step visited. Request only actual field names in `summary.fields`; display-only computed values are not fields.
 
 ## Example: one decision
 
@@ -90,7 +119,7 @@ root = Stack([
 
 ## Example: related typed settings
 
-Use `summary: {title: "Review configuration", fields: ["owner", "checks", "retries", "confirmed"]}`. This form requires the Owner and confirmation before submission:
+Use `summary: {title: "Review configuration", fields: ["owner", "checks", "retries", "confirmed"]}`. This example assumes the user requested a named owner and an explicit review confirmation; omit the confirmation checkbox for ordinary configuration. Owner and confirmation are required here:
 
 ```openui
 $owner = "";
@@ -109,6 +138,33 @@ root = Stack([
   ]),
   Button("Reset fields", @Reset($owner, $checks, $retries, $confirmed), {variant: "secondary"}),
   Button("Send settings", @ToAssistant("Use these review settings"), {variant: "primary"})
+]);
+```
+
+## Example: explore a scenario locally
+
+For an illustrative work estimate, use `summary: {title: "Work estimate", fields: ["people", "hours", "rate"]}`. These defaults are examples, not verified prices. Changing a control recomputes the table immediately; the final context carries the derived total.
+
+```openui
+$people = 2;
+$hours = 3;
+$rate = 50;
+root = Stack([
+  Text("Explore a work estimate", {bold: true}),
+  Text("Illustrative inputs. Rate is USD per person-hour; taxes and other costs are excluded.", {tone: "muted"}),
+  Row([
+    NumberInput("people", "People", $people, {min: 1, max: 10, step: 1}),
+    NumberInput("hours", "Hours per person", $hours, {min: 1, max: 12, step: 1})
+  ]),
+  Slider("rate", "Hourly rate (USD)", $rate, 20, 200, 10),
+  Table(["Measure", "Value"], [
+    ["Person-hours", $people * $hours],
+    ["Estimated cost (USD)", $people * $hours * $rate]
+  ]),
+  Button("Reset estimate", @Reset($people, $hours, $rate), {variant: "secondary"}),
+  Button("Use this estimate", @ToAssistant("Use these estimate inputs", {
+    people: $people, hours: $hours, rate: $rate, total: $people * $hours * $rate
+  }), {variant: "primary"})
 ]);
 ```
 

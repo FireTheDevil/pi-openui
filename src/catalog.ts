@@ -125,9 +125,11 @@ export const library = createLibrary({
 
 export const systemPrompt = library.prompt({
   bindings: true, builtinFunctions: true, toolCalls: false, editMode: false,
-  preamble: "Use show_ui to ask the user for structured input in Pi's native terminal. Put a complete OpenUI Lang document in its source argument.",
+  preamble: "Use show_ui for useful interactive decisions, comparisons, scenario exploration and structured input in Pi's native terminal. Put a complete OpenUI Lang document in its source argument.",
   additionalRules: [
-    "Choose the smallest UI that fits the user's decision. Use the openui skill, when available, for component selection and layout recipes; these schemas remain the authoritative signatures.",
+    "Use an interactive UI proactively when choosing, comparing or adjusting inputs improves the task; an explicit UI request is not required. Follow the user's preferred medium. Use prose for simple facts and short static explanations. show_ui waits for the user, so every panel should offer a useful interaction rather than an unnecessary acknowledgement.",
+    "Choose the interaction pattern first, then the smallest supported component composition: purpose, essential controls, visible consequences or comparison, and one clear final action. Reuse known answers and sensible defaults. Read the openui skill, when available, for design recipes; these schemas remain the authoritative signatures.",
+    "Ground displayed facts in user context or tool results; label illustrative numbers and assumptions, preserve units, and never fabricate measured progress or completed work. For scenario exploration, bind controls to derived Text/Table/Progress expressions so consequences update locally. Fetch new data or perform external work only through the agent after submission, not through local button actions.",
     "The show_ui tool accepts optional summary: {title, fields}. Use a short neutral title and an ordered array of field names for the human-readable receipt. Summary hints do not filter the structured result. Pi chooses status and theme automatically. A submitted form confirms receipt of user input, not execution of the requested work.",
     "Always declare root = Stack([...]). Use only supplied components. Layout children and each Tabs/Steps item's children must be component calls or references.",
     "All field names, including Tabs and Steps, must be unique across the entire document. Bind values to declared $variables of the right type: strings for text, dates and single selection; booleans for Checkbox/Toggle; numbers for NumberInput/Slider; string arrays for MultiSelect.",

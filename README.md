@@ -75,9 +75,11 @@ See the [submission summary screenshots](docs/submission-summaries.md) for actua
 
 ## Model guidance
 
-The extension automatically supplies lang-core's component schemas, binding/action rules and examples whenever `show_ui` is active in TUI mode. The bundled [openui skill](skills/openui/SKILL.md) adds design guidance: when to ask through a form, which of the 25 components to choose, how to structure pages, and which fields belong in a submission receipt. It also covers cancellation, validation and native code mode.
+The extension automatically supplies lang-core's component schemas, binding/action rules, core interaction policy and examples whenever `show_ui` is active in TUI mode. The bundled [openui skill](skills/openui/SKILL.md) teaches when to use an interactive UI or prose, how to compose comparisons, decisions and scenario explorers, and how to choose among the 25 components. It covers grounded data, meaningful reactive state, layout, cancellation, validation, native code mode and useful submission receipts. A complete scenario example demonstrates local recalculation, reset and submission.
 
 Package installation makes the skill discoverable. Pi loads its detailed instructions on demand; `/skill:openui` explicitly loads it. When running only the extension file with `-e`, add `--skill ./skills/openui/SKILL.md` as in the command above. Keep `read` or `bash` available if you use a restricted tool list: Pi omits skill discovery from the model prompt when neither tool is callable. The generated component prompt remains available independently of skill loading.
+
+The extension works through Pi's normal model/tool loop; the deterministic provider is external test tooling. See the [real-model evaluation guide](docs/model-evaluation.md) for the architectural contract, realistic acceptance prompts and the boundary between verified integration and model-generation quality.
 
 ## Native code mode
 
