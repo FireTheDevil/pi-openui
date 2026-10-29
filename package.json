@@ -1,6 +1,6 @@
 {
   "name": "pi-openui-tui",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "OpenUI Lang rendered in Pi's native terminal UI",
   "type": "module",
   "license": "MIT",

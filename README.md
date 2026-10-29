@@ -54,6 +54,29 @@ Use a `Stack` root and string state variables for form bindings. Editing fields 
 
 The tool result continues the current agent turn; it does not also inject a duplicate user message. Cancellation returns `{"status":"cancelled"}`. Invalid documents return an error with diagnostics. RPC, JSON and print modes return an explicit unsupported-mode error.
 
+## Native code mode
+
+Pi's native `codemode` can call the same tool while the session is in interactive TUI mode. Enable it alongside `show_ui`, for example:
+
+```sh
+pi --tui-mode fullscreen --tools +codemode -e ./src/index.ts
+```
+
+A model's `codemode` script can then await a structured result:
+
+```js
+const result = await tools.show_ui({
+  source: 'root = Stack([Button("Continue", @ToAssistant("Continue with the plan"))]);'
+});
+text(result);
+```
+
+The promise stays pending while the user edits fields or runs local actions, and resolves on submission or cancellation. Check `result.status` for `submitted`, `cancelled` or `error`. Native code mode receives the tool's structured output; normal tool calls retain their JSON text result. Avoid short script deadlines and concurrent panels. A nested result reaches the model only when the script outputs it.
+
+This works with native `codemode.mode` set to `on` or `only`. Keep `show_ui` active: `--tools codemode` alone removes it; use `--tools +codemode` or `--tools codemode,show_ui`. A UI invoked inside JavaScript opens when `tools.show_ui()` executes; partial JavaScript source does not produce a UI preview. Direct `show_ui` calls still support incremental argument previews.
+
+The third-party Code/Notebook Mode in `@howaboua/pi-codex-conversion` uses a separate registration API. This extension does not currently register with that adapter. Native code mode and `/openui-demo` need no such package.
+
 OpenUI Lang accepts host-defined component libraries. These are terminal-specific schemas, not drop-in replacements for the differently shaped components in OpenUI's web libraries.
 
 ## Button actions
@@ -109,6 +132,6 @@ npm run typecheck
 npm test
 ```
 
-`src/model.ts` owns the library, generated prompt, parsers, evaluation and action dispatch. `src/view.ts` adapts evaluated nodes to native Pi input/select/text components and terminal layouts. `src/index.ts` owns Pi registration and panel lifecycle. Automated tests exercise real lang-core and Pi widgets, ordered actions, Pi's actual extension loader, and its fullscreen mouse decoder, using simulated host/terminal boundaries.
+`src/model.ts` owns the library, generated prompt, parsers, evaluation and action dispatch. `src/view.ts` adapts evaluated nodes to native Pi input/select/text components and terminal layouts. `src/index.ts` owns Pi registration and panel lifecycle. Automated tests exercise real lang-core and Pi widgets, ordered actions, Pi's actual extension loader, its fullscreen mouse decoder, and native codemode's QuickJS worker, using simulated host/terminal boundaries.
 
-The extension was also tested in the actual Pi 1.4.0 CLI on Node 24 with a local deterministic provider: keyboard/mouse editing, local actions, reset, resizing, streaming, submission through the session/tool loop and cancellation passed. External model providers have not been tested. The gallery captures actual PTY output; recording and screenshot tooling are excluded from the repository and package.
+The extension was also tested in the actual Pi 1.4.0 CLI on Node 24 with a local deterministic provider: keyboard/mouse editing, local actions, reset, resizing, streaming, submission through the session/tool loop and cancellation passed. Native code-only mode was checked end to end, including nested tool IDs, structured results, prompt availability and cancellation. External model providers have not been tested. The gallery captures actual PTY output; recording and screenshot tooling are excluded from the repository and package.

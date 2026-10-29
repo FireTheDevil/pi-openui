@@ -6,6 +6,18 @@ import { OpenUIView, type UIResult } from "./view.js";
 
 const MAX_SOURCE_LENGTH = limits.source;
 type Outcome = UIResult | { status: "error"; error: string };
+const outcomeSchema = Type.Union([
+  Type.Object({
+    status: Type.Literal("submitted"),
+    action: Type.String(),
+    message: Type.Optional(Type.String()),
+    context: Type.Optional(Type.Unknown()),
+    state: Type.Record(Type.String(), Type.Unknown()),
+    values: Type.Record(Type.String(), Type.String()),
+  }),
+  Type.Object({ status: Type.Literal("cancelled") }),
+  Type.Object({ status: Type.Literal("error"), error: Type.String() }),
+]);
 interface Panel {
   id: string;
   model: DocumentModel;
@@ -95,9 +107,13 @@ export default function openuiExtension(pi: ExtensionAPI): void {
   }
 
   function response(result: Outcome) {
+    const serialized = JSON.stringify(result);
     return {
-      content: [{ type: "text" as const, text: JSON.stringify(result) }],
+      content: [{ type: "text" as const, text: serialized }],
       details: result,
+      // Native codemode returns structuredContent when outputSchema is declared.
+      // Normalize through JSON so scripts and direct model calls see the same data.
+      structuredContent: JSON.parse(serialized),
       ...(result.status === "error" ? { isError: true } : {}),
     };
   }
@@ -129,10 +145,14 @@ export default function openuiExtension(pi: ExtensionAPI): void {
     label: "OpenUI",
     description: "Show an interactive native terminal UI from an OpenUI Lang document. Local Set/Reset button actions update the open panel; ToAssistant or a legacy action identifier submits current values. Returns submission or cancellation. Requires interactive Pi TUI mode.",
     promptSnippet: "Display an OpenUI Lang form or table in the terminal and wait for the user's action.",
-    promptGuidelines: ["Use the OpenUI component library in the openui prompt section. Submit a complete program in source, with root = Stack([...])."],
+    promptGuidelines: [
+      "Use the OpenUI component library in the openui prompt section. Submit a complete program in source, with root = Stack([...]).",
+      "In native codemode, await tools.show_ui({ source }) and inspect result.status (submitted, cancelled or error). It waits for the user; do not set a short script timeout or open multiple panels concurrently. Include the result in script output if Pi needs to respond to it.",
+    ],
     parameters: Type.Object({
       source: Type.String({ minLength: 1, maxLength: MAX_SOURCE_LENGTH, description: "Complete OpenUI Lang program, without Markdown fences." }),
     }),
+    outputSchema: outcomeSchema,
     executionMode: "sequential",
     async execute(id, params, signal, _onUpdate, ctx) {
       if (ctx.mode !== "tui") return response({ status: "error", error: "show_ui requires Pi interactive TUI mode; custom terminal components are unavailable in RPC, JSON and print modes." });
