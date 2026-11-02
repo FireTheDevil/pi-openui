@@ -12,6 +12,7 @@ import { localActionError } from "./local-policy.js";
 import { presentation, safeText, type HostTheme, type PresentationStyle } from "./presentation.js";
 export { safeText } from "./presentation.js";
 
+export type ViewEdge = "none" | "right";
 export type UIResult = ActionSubmission | { status: "cancelled" };
 export interface ViewOptions {
   requestRender(): void;
@@ -33,6 +34,41 @@ type PageAncestor = { key: string; value: string };
 type Control = { key: string; node: ElementNode; widget?: FieldControl; pages: PageAncestor[] };
 type Hit = { key: string; part: "label" | "widget" | "button" | "page"; x: number; y: number; width: number; height: number; value?: string };
 type MouseHit = Hit & { top: number; bottom: number };
+type Point = Readonly<{ x: number; y: number }>;
+type ScrollbarLayout = Readonly<{ x: number; top: number; rows: number; bodyLength: number }>;
+type ScrollbarGeometry = ScrollbarLayout & Readonly<{
+  maxOffset: number; thumbTop: number; thumbRows: number; travel: number;
+}>;
+type PointerGesture =
+  | { kind: "control"; hit: MouseHit; dragged: boolean; x: number; y: number }
+  | { kind: "scrollbar-thumb"; layout: ScrollbarLayout; grabRow: number; lastY: number }
+  | { kind: "scrollbar-track"; layout: ScrollbarLayout; press: Point; direction: -1 | 1; phase: "pressed" | "await-click" }
+  | { kind: "scrollbar-consume" };
+
+function makeScrollbarGeometry(layout: ScrollbarLayout, offset: number): ScrollbarGeometry {
+  const maxOffset = layout.bodyLength - layout.rows;
+  const thumbRows = Math.max(1, Math.round(layout.rows * layout.rows / layout.bodyLength));
+  const travel = layout.rows - thumbRows;
+  return { ...layout, maxOffset, thumbRows, travel, thumbTop: layout.top + Math.round(offset / maxOffset * travel) };
+}
+
+function hitScrollbar(geometry: ScrollbarGeometry, point: Point):
+  { kind: "thumb"; grabRow: number } | { kind: "track"; direction: -1 | 1 } | undefined {
+  if (point.x !== geometry.x || point.y < geometry.top || point.y >= geometry.top + geometry.rows) return;
+  if (point.y >= geometry.thumbTop && point.y < geometry.thumbTop + geometry.thumbRows) {
+    return { kind: "thumb", grabRow: point.y - geometry.thumbTop };
+  }
+  return { kind: "track", direction: point.y < geometry.thumbTop ? -1 : 1 };
+}
+
+function offsetForThumb(geometry: ScrollbarGeometry, pointerY: number, grabRow: number): number {
+  const top = Math.max(0, Math.min(geometry.travel, pointerY - geometry.top - grabRow));
+  return Math.round(top / geometry.travel * geometry.maxOffset);
+}
+
+function sameScrollbarLayout(a: ScrollbarLayout, b: ScrollbarLayout): boolean {
+  return a.x === b.x && a.top === b.top && a.rows === b.rows && a.bodyLength === b.bodyLength;
+}
 type Block = { lines: string[]; hits: Hit[]; positions: Map<string, number>; labels: Map<string, number> };
 const block = (): Block => ({ lines: [], hits: [], positions: new Map(), labels: new Map() });
 const navigation = (node: ElementNode) => node.typeName === "Tabs" || node.typeName === "Steps";
@@ -59,7 +95,8 @@ export class OpenUIView implements Component, Focusable {
   private renderedWidth = 0;
   private renderedHeight = 0;
   private viewportSize?: { width: number; height: number };
-  private mouseGesture?: { hit: MouseHit; dragged: boolean; x: number; y: number };
+  private pointerGesture?: PointerGesture;
+  private scrollbar?: ScrollbarGeometry;
   private style: PresentationStyle;
   private surface?: "inline" | "fullscreen";
   private surfaceToggle?: { x: number; y: number; width: number };
@@ -74,6 +111,7 @@ export class OpenUIView implements Component, Focusable {
   /** Retain hidden-page widgets too, so draft text/cursors survive page navigation. */
   refresh(resetTargets = new Set<string>()): void {
     if (this.closed) return;
+    if (this.pointerGesture?.kind !== "control") this.cancelPointerGesture();
     const focusedKey = this.controls[this.focusIndex]?.key;
     const next: Control[] = [];
     const seen = new Set<string>();
@@ -115,14 +153,14 @@ export class OpenUIView implements Component, Focusable {
   setSurface(surface: "inline" | "fullscreen"): void {
     if (this.surface === surface) return;
     this.surface = surface;
-    this.mouseGesture = undefined;
-    this.surfaceGesture = undefined;
+    this.cancelPointerGesture();
+    this.scrollbar = undefined;
     this.surfaceToggle = undefined;
     this.followFocus = true;
     this.invalidate();
     this.options.requestRender();
   }
-  dispose(): void { this.closed = true; this.controls = []; this.cache.clear(); this.mouseHits = []; this.mouseGesture = undefined; this.surfaceGesture = undefined; this.surfaceToggle = undefined; }
+  dispose(): void { this.closed = true; this.controls = []; this.cache.clear(); this.mouseHits = []; this.scrollbar = undefined; this.pointerGesture = undefined; this.surfaceGesture = undefined; this.surfaceToggle = undefined; }
   private finish(result: UIResult): void { if (!this.closed) { this.closed = true; this.options.onDone(result); } }
   private moveFocus(delta: number): void {
     this.focusIndex = this.controls.length ? (this.focusIndex + delta + this.controls.length) % this.controls.length : 0;
@@ -195,6 +233,7 @@ export class OpenUIView implements Component, Focusable {
   }
   handleInput(data: string): void {
     if (this.closed) return;
+    this.cancelPointerGesture();
     if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
       if (this.options.interaction === "local") this.options.onBlur?.();
       else this.finish({ status: "cancelled" });
@@ -227,19 +266,74 @@ export class OpenUIView implements Component, Focusable {
       if (result.handled) { this.actionError = undefined; this.refresh(); if (result.advance) this.moveFocus(1); }
     }
   }
-  private scroll(delta: number): void {
+  private scroll(delta: number): void { this.setManualOffset(this.offset + delta); }
+  private setManualOffset(offset: number): void {
     this.followFocus = false;
-    this.offset = Math.max(0, Math.min(this.offset + delta, Math.max(0, this.bodyLength - this.pageSize)));
+    this.offset = Math.max(0, Math.min(offset, Math.max(0, this.bodyLength - this.pageSize)));
     this.options.requestRender();
+  }
+
+  ownsScrollbarContinuation(event: TuiMouseEvent): boolean {
+    return !!this.pointerGesture && this.pointerGesture.kind !== "control"
+      && (event.type === "drag" || event.type === "move" || event.type === "release" || event.type === "click");
+  }
+
+  cancelPointerGesture(): void {
+    if (this.pointerGesture?.kind === "control") this.pointerGesture.dragged = true;
+    else if (this.pointerGesture) this.pointerGesture = { kind: "scrollbar-consume" };
+    if (this.surfaceGesture) this.surfaceGesture.cancelled = true;
+  }
+
+  private installScrollbarGeometry(geometry: ScrollbarGeometry | undefined): void {
+    const gesture = this.pointerGesture;
+    if (gesture && (gesture.kind === "scrollbar-thumb" || gesture.kind === "scrollbar-track")
+      && (!geometry || !sameScrollbarLayout(gesture.layout, geometry))) this.cancelPointerGesture();
+    this.scrollbar = geometry;
+  }
+
+  private handleScrollbarMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    const gesture = this.pointerGesture;
+    if (this.ownsScrollbarContinuation(event) && gesture) {
+      if (gesture.kind === "scrollbar-thumb") {
+        const geometry = this.scrollbar;
+        if ((event.type === "drag" || event.type === "release") && geometry && event.y !== gesture.lastY) {
+          gesture.lastY = event.y;
+          if (geometry.travel > 0) this.setManualOffset(offsetForThumb(geometry, event.y, gesture.grabRow));
+        }
+        if (event.type === "release" || event.type === "click" || event.type === "move") this.cancelPointerGesture();
+      } else if (gesture.kind === "scrollbar-track") {
+        const matches = event.x === gesture.press.x && event.y === gesture.press.y;
+        if (event.type === "release" && matches && gesture.phase === "pressed") gesture.phase = "await-click";
+        else {
+          this.cancelPointerGesture();
+          if (event.type === "click" && matches && gesture.phase === "await-click") this.scroll(gesture.direction * gesture.layout.rows);
+        }
+      }
+      return { handled: true, render: event.type === "drag" || event.type === "release" || event.type === "click" };
+    }
+    if (event.type !== "press" || event.button !== "left" || event.shift || event.alt || event.ctrl || !this.scrollbar) return;
+    const target = hitScrollbar(this.scrollbar, event);
+    if (!target) return;
+    this.surfaceGesture = undefined;
+    this.followFocus = false;
+    this.pointerGesture = target.kind === "thumb"
+      ? { kind: "scrollbar-thumb", layout: this.scrollbar, grabRow: target.grabRow, lastY: event.y }
+      : { kind: "scrollbar-track", layout: this.scrollbar, press: { x: event.x, y: event.y }, direction: target.direction, phase: "pressed" };
+    return { handled: true, capture: true, render: false };
   }
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     if (this.closed) return;
+    if (!Number.isFinite(event.x) || !Number.isFinite(event.y)) { this.cancelPointerGesture(); return; }
+    if (event.type === "wheel") this.cancelPointerGesture();
+    if (event.type === "press") this.pointerGesture = undefined;
+    const scrollbarResult = this.handleScrollbarMouse(event);
+    if (scrollbarResult) return scrollbarResult;
     const toggle = this.surfaceToggle;
     const onToggle = toggle && event.x >= toggle.x && event.x < toggle.x + toggle.width && event.y === toggle.y;
     if (this.options.onToggleExpanded && event.button === "left" && !event.shift && !event.alt && !event.ctrl) {
       if (event.type === "press" && onToggle) {
-        this.mouseGesture = undefined;
+        this.pointerGesture = undefined;
         this.surfaceGesture = { x: event.x, y: event.y };
         return { handled: true };
       }
@@ -265,7 +359,6 @@ export class OpenUIView implements Component, Focusable {
     const hit = inside ? this.mouseHits.find(region => event.x >= region.x && event.x < region.x + region.width && event.y >= region.top && event.y < region.bottom) : undefined;
     if (event.type === "wheel") {
       if (!inside || !Number.isFinite(event.wheelDelta) || !event.wheelDelta) return;
-      this.mouseGesture = undefined;
       const control = hit && this.cache.get(hit.key);
       if (control && this.model.valid && !this.model.streaming && !this.model.isDisabled(control.node)) {
         if (hit.part === "page") { this.changePage(control, Math.sign(event.wheelDelta)); return { handled: true, render: true }; }
@@ -278,22 +371,21 @@ export class OpenUIView implements Component, Focusable {
       return { handled: true, render: true };
     }
     if (this.model.streaming || !this.model.valid || event.button !== "left" || event.shift || event.alt || event.ctrl) return;
-    if (event.type === "drag") { if (this.mouseGesture) { this.mouseGesture.dragged = true; return { handled: true }; } return; }
+    if (event.type === "drag") { if (this.pointerGesture?.kind === "control") { this.pointerGesture.dragged = true; return { handled: true }; } return; }
     if (event.type === "release") {
-      if (!this.mouseGesture) return;
-      if (event.x !== this.mouseGesture.x || event.y !== this.mouseGesture.y) this.mouseGesture.dragged = true;
+      if (this.pointerGesture?.kind !== "control") return;
+      if (event.x !== this.pointerGesture.x || event.y !== this.pointerGesture.y) this.pointerGesture.dragged = true;
       return { handled: true, render: false };
     }
     if (event.type !== "press" && event.type !== "click") return;
-    if (event.type === "press") this.mouseGesture = undefined;
-    const gesture = event.type === "click" ? this.mouseGesture : undefined;
-    if (event.type === "click") this.mouseGesture = undefined;
+    const gesture = event.type === "click" && this.pointerGesture?.kind === "control" ? this.pointerGesture : undefined;
+    if (event.type === "click") this.pointerGesture = undefined;
     const target = gesture?.hit ?? hit;
     if (!target || gesture?.dragged || (gesture && (event.x !== gesture.x || event.y !== gesture.y))) return;
     const control = this.cache.get(target.key);
     const index = this.controls.findIndex(item => item.key === target.key);
     if (!control || index < 0 || this.model.isDisabled(control.node)) return;
-    if (event.type === "press") this.mouseGesture = { hit: { ...target }, dragged: false, x: event.x, y: event.y };
+    if (event.type === "press") this.pointerGesture = { kind: "control", hit: { ...target }, dragged: false, x: event.x, y: event.y };
     this.focusIndex = index;
     this.followFocus = false;
     if (target.part === "button" && event.type === "click") {
@@ -462,29 +554,30 @@ export class OpenUIView implements Component, Focusable {
     } finally { this.focused = focused; }
   }
 
-  render(width: number): string[] {
+  render(width: number, edge: ViewEdge = "none"): string[] {
     this.mouseHits = [];
     this.surfaceToggle = undefined;
     this.renderedWidth = this.renderedHeight = 0;
-    if (this.closed || width <= 0) { if (this.mouseGesture) this.mouseGesture.dragged = true; return []; }
+    if (this.closed || width <= 0) { this.cancelPointerGesture(); this.installScrollbarGeometry(undefined); return []; }
     width = Math.max(1, Math.floor(width));
     const height = Math.max(1, Math.floor(this.options.getHeight()));
     if (this.viewportSize?.width !== width || this.viewportSize?.height !== height) {
-      if (this.mouseGesture) this.mouseGesture.dragged = true;
-      if (this.surfaceGesture) this.surfaceGesture.cancelled = true;
+      this.cancelPointerGesture();
     }
     this.viewportSize = { width, height };
-    let contentWidth = width >= 40 ? width - 4 : width;
+    const local = this.options.interaction === "local";
+    const rightEdge = edge === "right";
+    const bottomCap = rightEdge && height >= 4;
+    let contentWidth = width >= 40 ? width - 4 : width - (rightEdge ? 1 : 0);
     const contentLeft = this.surface === "inline" ? (width >= 40 ? 2 : 0) : Math.floor((width - contentWidth) / 2);
-    this.pageSize = height < 3 ? height : height - 2;
+    this.pageSize = height < 3 ? height : height - (bottomCap ? 3 : 2);
     let rendered = this.documentBlock(contentWidth);
     // Use the existing right margin when possible. On smaller surfaces reserve
     // a gutter only for overflowing local content; never widen the widget.
-    const local = this.options.interaction === "local";
     const scrollbar = local && rendered.lines.length > this.pageSize && (width >= 20 || (height < 3 && width >= 2));
     const gutter = width >= 20 ? 2 : 1;
     if (scrollbar && contentLeft + contentWidth + gutter > width) {
-      contentWidth -= gutter;
+      contentWidth = width - contentLeft - gutter;
       rendered = this.documentBlock(contentWidth);
     }
     this.bodyLength = rendered.lines.length;
@@ -537,21 +630,31 @@ export class OpenUIView implements Component, Focusable {
     const visibleLength = body.length;
     if (this.surface === "fullscreen" || (this.surface === undefined && this.options.fillHeight)) while (body.length < this.pageSize) body.push("");
     const result = height < 3 ? body : [heading, ...body, this.style.fg(this.actionError ? "error" : "muted", hint)];
+    if (bottomCap) result.push("");
     const top = height < 3 ? 0 : 1;
     this.mouseHits = rendered.hits.map(hit => {
       const y = hit.y - this.offset + top;
       return { ...hit, x: hit.x + contentLeft, y, width: Math.min(contentWidth - hit.x, hit.width), top: Math.max(top, y), bottom: Math.min(top + visibleLength, y + hit.height) };
     }).filter(hit => hit.top < hit.bottom && hit.width > 0);
     this.renderedWidth = width; this.renderedHeight = result.length;
-    const thumbSize = Math.max(1, Math.round(this.pageSize * this.pageSize / this.bodyLength));
-    const thumbTop = overflow ? Math.round(this.offset / (this.bodyLength - this.pageSize) * (this.pageSize - thumbSize)) : 0;
+    const geometry = scrollbar && overflow ? makeScrollbarGeometry({
+      x: rightEdge ? width - 1 : contentLeft + contentWidth + gutter - 1, top, rows: this.pageSize, bodyLength: this.bodyLength,
+    }, this.offset) : undefined;
+    this.installScrollbarGeometry(geometry);
     return result.map((line, row) => {
       const bodyRow = row - top;
       const inBody = bodyRow >= 0 && bodyRow < visibleLength;
-      const rail = scrollbar && overflow && inBody
+      const onThumb = geometry && row >= geometry.thumbTop && row < geometry.thumbTop + geometry.thumbRows;
+      if (rightEdge) {
+        const glyph = geometry && inBody
+          ? this.style.fg(onThumb ? "accent" : "muted", onThumb ? "┃" : "│")
+          : this.style.fg("borderMuted", height >= 3 && row === result.length - 1 ? "┘" : "│");
+        return " ".repeat(contentLeft) + pad(line, width - contentLeft - 1) + glyph;
+      }
+      const rail = geometry && inBody
         ? (gutter === 2 ? " " : "") + this.style.fg(
-          bodyRow >= thumbTop && bodyRow < thumbTop + thumbSize ? "accent" : "muted",
-          bodyRow >= thumbTop && bodyRow < thumbTop + thumbSize ? "┃" : "│")
+          onThumb ? "accent" : "muted",
+          onThumb ? "┃" : "│")
         : "";
       return " ".repeat(contentLeft) + (rail ? pad(line, contentWidth) : truncateToWidth(line, contentWidth, "")) + rail;
     });

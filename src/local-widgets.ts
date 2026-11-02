@@ -4,7 +4,7 @@ import { Text, isKeyRelease, matchesKey, stripTerminalSequences, truncateToWidth
 import { DocumentModel, limits } from "./model.js";
 import { localDocumentDiagnostics } from "./local-policy.js";
 import { presentation, safeText, type HostTheme } from "./presentation.js";
-import { OpenUIView, type ViewOptions } from "./view.js";
+import { OpenUIView, type ViewEdge, type ViewOptions } from "./view.js";
 
 export const OPENUI_LOCAL_ENTRY = "openui-local-widget";
 export const OPENUI_LOCAL_CLOSE_ENTRY = "openui-local-close";
@@ -18,6 +18,13 @@ type HostTUI = TUI & {
   readonly viewportTop?: number;
   scrollBy?(lines: number): void;
 };
+type LocalWidgetLayout = Readonly<{ width: number; edge: ViewEdge }>;
+function localWidgetLayout(hostWidth: number): LocalWidgetLayout | undefined {
+  if (!Number.isFinite(hostWidth)) return undefined;
+  const columns = Math.floor(hostWidth);
+  const width = columns - (columns >= 22 ? 2 : 1);
+  return width > 0 ? { width, edge: width >= 20 ? "right" : "none" } : undefined;
+}
 interface Widget {
   data: StoredWidget;
   model: DocumentModel;
@@ -28,6 +35,7 @@ interface Widget {
   theme: HostTheme;
   closeHit?: { x: number; width: number };
   width?: number;
+  layout?: LocalWidgetLayout;
 }
 // Pi 1.4's matchesKey handles plain F6 but not modified function keys.
 const cycleKey = (data: string) => data === "\x1b[17;2~" || /^\x1b\[57369;2(?::[12])?u$/.test(data);
@@ -170,18 +178,28 @@ export function createLocalWidgets(pi: ExtensionAPI) {
       // dispatching to a focused transcript component. Older hosts ignore this.
       capturesViewportInput: true,
       get focused() { return widget.view.focused; },
-      set focused(value: boolean) { widget.view.focused = value; },
+      set focused(value: boolean) { if (!value) widget.view.cancelPointerGesture(); widget.view.focused = value; },
       invalidate() { if (!widget.disposed) widget.view.invalidate(); },
       render(width: number) {
-        if (widget.disposed || width < 1) return [];
+        if (widget.disposed) return [];
         widget.width = width;
+        const layout = widget.layout = localWidgetLayout(width);
+        widget.closeHit = undefined;
+        if (!layout) { widget.view.cancelPointerGesture(); return []; }
         const style = presentation(() => widget.theme);
         const left = `${data.widgetId} · ${safeText(data.title)}`;
         const label = "[Close]";
-        const gap = Math.max(1, width - visibleWidth(left) - label.length);
-        const header = truncateToWidth(left, Math.max(0, width - label.length - 1), "") + " ".repeat(Math.min(gap, Math.max(0, width - label.length))) + label;
-        widget.closeHit = { x: Math.max(0, visibleWidth(header) - label.length), width: label.length };
-        return [truncateToWidth(style.fg(widget.view.focused ? "accent" : "muted", header), width, ""), ...widget.view.render(width)];
+        const textWidth = layout.width - (layout.edge === "right" ? 2 : 0);
+        let header = truncateToWidth(left, textWidth, "");
+        if (textWidth >= label.length) {
+          const x = textWidth - label.length;
+          header = truncateToWidth(left, Math.max(0, x - 1), "");
+          header += " ".repeat(x - visibleWidth(header)) + label;
+          widget.closeHit = { x, width: label.length };
+        }
+        header = style.fg(widget.view.focused ? "accent" : "muted", header);
+        if (layout.edge === "right") header += " " + style.fg("borderMuted", "┐");
+        return [header, ...widget.view.render(layout.width, layout.edge)];
       },
       handleInput(data: string) {
         if (widget.disposed || focused() !== widget.component) return;
@@ -191,16 +209,26 @@ export function createLocalWidgets(pi: ExtensionAPI) {
       },
       handleMouse(event: TuiMouseEvent) {
         if (widget.disposed) return undefined;
+        const width = widget.layout?.width ?? 0;
+        if (event.type === "wheel") widget.view.cancelPointerGesture();
+        if (widget.view.ownsScrollbarContinuation(event)) {
+          const result = widget.view.handleMouse({ ...event, width, y: event.y - 1, height: Math.max(0, event.height - 1) });
+          return result ? { ...result, focus: false } : undefined;
+        }
+        if (event.x < 0 || event.x >= width) return undefined;
         if (event.type === "press" || event.type === "click") {
-          if (!focus(widget, false)) return undefined;
+          if (focused() !== widget.component && !focus(widget, false)) return undefined;
           if (event.button === "left" && event.type === "click" && event.y === 0 && widget.closeHit
             && event.x >= widget.closeHit.x && event.x < widget.closeHit.x + widget.closeHit.width) {
             remove(widget.data.widgetId, true);
             return { handled: true, render: true };
           }
         }
-        if (event.y === 0) return { handled: true, render: false };
-        const result = widget.view.handleMouse({ ...event, y: event.y - 1, height: Math.max(0, event.height - 1) });
+        if (event.y === 0) {
+          if (event.type === "press") widget.view.handleMouse({ ...event, width, y: -1, height: Math.max(0, event.height - 1) });
+          return { handled: true, render: false };
+        }
+        const result = widget.view.handleMouse({ ...event, width, y: event.y - 1, height: Math.max(0, event.height - 1) });
         // The manager owns keyboard focus and restores the actual chat editor.
         return result ? { ...result, focus: false } : undefined;
       },
