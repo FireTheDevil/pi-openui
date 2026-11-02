@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { Type } from "typebox";
 import {
   createCodemodeExtension,
   type ExtensionAPI, type ExtensionToolContext,
@@ -18,6 +19,10 @@ function host(mode: "on" | "only" = "on") {
   let closed = 0;
   let count = 0;
   let userTurns = 0;
+  let aborts = 0;
+  let sideEffects = 0;
+  let run = new AbortController();
+  const nestedResults: any[] = [];
   let notifyOpened!: () => void;
   const opened = new Promise<void>(resolve => { notifyOpened = resolve; });
   const api = {
@@ -35,9 +40,16 @@ function host(mode: "on" | "only" = "on") {
     sendMessage() { userTurns++; },
   } as unknown as ExtensionAPI;
   openuiExtension(api);
+  tools.set("sentinel", {
+    name: "sentinel", label: "Sentinel", description: "Record that the next statement ran.",
+    parameters: Type.Object({}),
+    async execute() { sideEffects++; return { content: [{ type: "text", text: "effect recorded" }] }; },
+  });
   createCodemodeExtension({ mode, models: false, inlineBudget: 20_000 })(api);
   const ctx = {
-    mode: "tui", hasUI: true, signal: undefined,
+    mode: "tui", hasUI: true,
+    get signal() { return run.signal; },
+    abort() { aborts++; run.abort(); },
     sessionManager: { getBranch: () => [] },
     tools: [...tools.values()],
     ui: {
@@ -52,16 +64,24 @@ function host(mode: "on" | "only" = "on") {
       const id = `code-parent/${++count}`;
       const toolCall = { type: "toolCall", id, name, arguments: args };
       const result = await tools.get(name).execute(id, args, options.signal, undefined, ctx);
+      nestedResults.push({ name, result });
       handlers.get("tool_execution_end")?.({ type: "tool_execution_end", toolName: name, toolCallId: id, parentToolCallId: "code-parent", result, isError: !!result.isError }, ctx);
       return { toolCall, result, isError: !!result.isError };
     },
   } as unknown as ExtensionToolContext;
   return {
-    tools, handlers, ctx, opened, get closed() { return closed; }, get userTurns() { return userTurns; },
+    tools, handlers, ctx, opened, nestedResults,
+    get closed() { return closed; }, get userTurns() { return userTurns; },
+    get aborts() { return aborts; }, get sideEffects() { return sideEffects; },
     key(data: string) { view.render(100); view.handleInput(data); },
     lines() { return view.render(100).join("\n"); },
-    execute(code: string, signal?: AbortSignal) {
-      return tools.get("codemode").execute("code-parent", { code }, signal, undefined, ctx);
+    async execute(code: string, signal?: AbortSignal) {
+      run = new AbortController();
+      const abort = () => run.abort(signal?.reason);
+      if (signal?.aborted) abort();
+      else signal?.addEventListener("abort", abort, { once: true });
+      try { return await tools.get("codemode").execute("code-parent", { code }, run.signal, undefined, ctx); }
+      finally { signal?.removeEventListener("abort", abort); }
     },
     shutdown() { handlers.get("session_shutdown")?.({}, ctx); },
     loadout() {
@@ -112,18 +132,42 @@ for (const mode of ["on", "only"] as const) {
   });
 }
 
-test("native QuickJS receives structured Escape cancellation", { timeout: 15_000 }, async () => {
-  const h = host();
-  const pending = h.execute(`const result = await tools.show_ui({source: ${JSON.stringify(SOURCE)}}); text(result.status);`);
-  try {
-    await h.opened;
-    h.key("\x1b");
-    const result = await pending;
-    assert.equal(result.isError, undefined);
-    assert.match(result.content.map((item: any) => item.text ?? "").join("\n"), /cancelled/);
-    assert.equal(h.closed, 1);
-  } finally { h.shutdown(); }
-});
+for (const mode of ["on", "only"] as const) {
+  for (const [label, key] of [["Escape", "\x1b"], ["Ctrl+C", "\x03"]]) {
+    test(`native QuickJS (${mode}) ${label} returns cancellation normally and lets the caller continue`, { timeout: 15_000 }, async () => {
+      const h = host(mode);
+      // The caller can skip choice-dependent work and still clean up or continue
+      // unrelated work. Dismissing the form is not an execution interruption.
+      const pending = h.execute(`try { const result = await tools.show_ui({source: ${JSON.stringify(SOURCE)}}); text(result); if (result.status === "submitted") { await tools.sentinel({}); text("SUBMITTED_ONLY"); } else if (result.status === "cancelled") { text("FORM_DISMISSED"); } } catch { text("UNEXPECTED_EXCEPTION"); } finally { text("CLEANUP_RAN"); } await tools.sentinel({}); text("CALLER_CONTINUED");`);
+      try {
+        await h.opened;
+        h.key(key);
+        const result = await pending;
+        const output = result.content.map((item: any) => item.text ?? "").join("\n");
+        assert.equal(result.isError, undefined);
+        assert.match(output, /"status":"cancelled"/);
+        assert.match(output, /FORM_DISMISSED/);
+        assert.match(output, /CLEANUP_RAN/);
+        assert.match(output, /CALLER_CONTINUED/);
+        assert.doesNotMatch(output, /UNEXPECTED_EXCEPTION|SUBMITTED_ONLY/);
+        assert.equal(h.sideEffects, 1, "only the caller's unconditional continuation should execute");
+        assert.equal(h.aborts, 0);
+        assert.equal(h.ctx.signal?.aborted, false);
+        assert.equal(h.closed, 1);
+        const nested = h.nestedResults.find(item => item.name === "show_ui");
+        assert.deepEqual(nested?.result.structuredContent, { status: "cancelled" });
+        assert.equal(nested.result.isError, undefined);
+        assert.equal(nested.result.details.openuiReceipt.status, "cancelled");
+        assert.deepEqual(nested.result.details.openuiReceipt.fields, [], "cancellation must not submit default field values");
+
+        const next = await h.execute('await tools.sentinel({}); text("NEW_USER_REQUEST");');
+        assert.equal(next.isError, undefined);
+        assert.match(next.content.map((item: any) => item.text ?? "").join("\n"), /NEW_USER_REQUEST/);
+        assert.equal(h.sideEffects, 2, "a subsequent run still executes normally");
+      } finally { h.shutdown(); }
+    });
+  }
+}
 
 test("native QuickJS receives structured malformed-document errors", { timeout: 15_000 }, async () => {
   const h = host();
@@ -144,6 +188,26 @@ test("aborting native QuickJS closes its waiting OpenUI panel", { timeout: 15_00
     const result = await pending;
     assert.equal(result.isError, true);
     assert.equal(h.closed, 1);
+    assert.equal(h.aborts, 0, "an external abort must not recursively abort the host");
     assert.match(result.content.map((item: any) => item.text ?? "").join("\n"), /abort/i);
+  } finally { h.shutdown(); }
+});
+
+test("native QuickJS timeout closes the waiting panel and permits a later run", { timeout: 15_000 }, async () => {
+  const h = host();
+  const pending = h.execute(`// @options: {"timeout_ms": 250}\nawait tools.show_ui({source: ${JSON.stringify(SOURCE)}}); await tools.sentinel({}); text("AFTER_TIMEOUT");`);
+  try {
+    await h.opened;
+    const result = await pending;
+    const output = result.content.map((item: any) => item.text ?? "").join("\n");
+    assert.equal(result.isError, true);
+    assert.match(output, /timeout|timed out/i);
+    assert.doesNotMatch(output, /AFTER_TIMEOUT/);
+    assert.equal(h.sideEffects, 0);
+    assert.equal(h.closed, 1);
+    assert.equal(h.aborts, 0);
+    const next = await h.execute('text("RECOVERED_AFTER_TIMEOUT");');
+    assert.equal(next.isError, undefined);
+    assert.match(next.content.map((item: any) => item.text ?? "").join("\n"), /RECOVERED_AFTER_TIMEOUT/);
   } finally { h.shutdown(); }
 });

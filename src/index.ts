@@ -1,15 +1,20 @@
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { Text } from "@earendil-works/pi-tui";
+import { Text, matchesKey } from "@earendil-works/pi-tui";
 import { ACTIONS_DEMO_SOURCE, CATALOG_DEMO_SOURCE, DEMO_SOURCE } from "./demo.js";
 import { DocumentModel, limits, modelPrompt } from "./model.js";
 import { OpenUIView, type UIResult } from "./view.js";
 import { createReceipt, isReceipt, isSummaryOutcome, renderReceipt, renderOpenUICall, type Receipt, type SummaryOptions } from "./summary.js";
 import { registerCodeSummaries } from "./code-summary.js";
+import { createInlineDocument, hasInteractiveContent, isInlineDocument, renderInlineDocument, type InlineDocument } from "./inline-document.js";
+import { registerToolWithConversion } from "./conversion.js";
 
 const MAX_SOURCE_LENGTH = limits.source;
-type Outcome = UIResult | { status: "error"; error: string };
-type ToolDetails = Outcome & { openuiReceipt: Receipt };
+type Outcome = UIResult | { status: "displayed" } | { status: "error"; error: string };
+type ToolDetails = Outcome & { openuiReceipt: Receipt; openuiDocument?: InlineDocument };
+type Presentation = "auto" | "inline" | "fullscreen";
+type Surface = Exclude<Presentation, "auto">;
+const SWITCH_SURFACE = Symbol("switchSurface");
 const summarySchema = Type.Object({
   title: Type.Optional(Type.String({ maxLength: 160, description: "Neutral title for the submission receipt, such as Review configuration." })),
   fields: Type.Optional(Type.Array(Type.String({ pattern: "^[A-Za-z_][A-Za-z0-9_-]{0,63}$" }), {
@@ -26,6 +31,7 @@ const outcomeSchema = Type.Union([
     values: Type.Record(Type.String(), Type.Union([Type.String(), Type.Boolean(), Type.Number(), Type.Array(Type.String())])),
   }),
   Type.Object({ status: Type.Literal("cancelled") }),
+  Type.Object({ status: Type.Literal("displayed") }),
   Type.Object({ status: Type.Literal("error"), error: Type.String() }),
 ]);
 interface Panel {
@@ -34,12 +40,16 @@ interface Panel {
   view?: OpenUIView;
   promise?: Promise<Outcome>;
   result?: Outcome;
-  close?: (result: UIResult) => void;
+  close?: (result: Outcome | typeof SWITCH_SURFACE) => void;
   removeAbortListeners: Array<() => void>;
   executing: boolean;
   timer?: ReturnType<typeof setInterval>;
   summary?: SummaryOptions;
   receipt?: Receipt;
+  surface: Surface;
+  userChangedSurface?: boolean;
+  document?: InlineDocument;
+  displayOnly?: boolean;
 }
 
 /** No host TUI is constructed here: Pi owns the terminal, focus and redraw loop. */
@@ -58,7 +68,7 @@ export default function openuiExtension(pi: ExtensionAPI): void {
   });
 
   function create(id: string): Panel {
-    const panel: Panel = { id, model: new DocumentModel(), removeAbortListeners: [], executing: false };
+    const panel: Panel = { id, model: new DocumentModel(), removeAbortListeners: [], executing: false, surface: "inline" };
     panels.set(id, panel);
     return panel;
   }
@@ -72,7 +82,7 @@ export default function openuiExtension(pi: ExtensionAPI): void {
     if (visible === panel) visible = undefined;
     // Also cover a host failure or cancellation before custom() mounts the view.
     panel.view?.dispose();
-    panel.close?.(result.status === "error" ? { status: "cancelled" } : result);
+    panel.close?.(result);
   }
 
   function bindAbort(panel: Panel, signal?: AbortSignal): void {
@@ -93,30 +103,51 @@ export default function openuiExtension(pi: ExtensionAPI): void {
     if (panel.promise || panel.result) return;
     visible = panel;
     // Do not await custom() from message_update: the provider must keep streaming.
-    panel.promise = ctx.ui.custom<UIResult>((tui, theme, _keys, done) => {
-      panel.close = done;
-      panel.view = new OpenUIView(panel.model, {
-        title,
-        theme,
-        requestRender: () => tui.requestRender(),
-        getHeight: () => Math.max(1, tui.terminal.rows),
-        fillHeight: true,
-        onDone: (result) => finish(panel, result),
-      });
-      if (panel.result) done({ status: "cancelled" });
-      return panel.view;
-    }, {
-      // A viewport-sized overlay gives render and mouse events the same origin,
-      // even when Pi's editor dock would otherwise clip a tall custom component.
-      overlay: true,
-      overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 },
-    }).then((result) => {
-      finish(panel, result);
+    panel.promise = (async () => {
+      try {
+        while (!panel.result) {
+          const result = await ctx.ui.custom<Outcome | typeof SWITCH_SURFACE>((tui, theme, _keys, done) => {
+            panel.close = done;
+            panel.view ??= new OpenUIView(panel.model, {
+              title, theme, surface: panel.surface, dismissOnEnter: panel.displayOnly,
+              requestRender: () => tui.requestRender(),
+              getHeight: () => panel.surface === "fullscreen" ? Math.max(1, tui.terminal.rows)
+                : Math.max(3, Math.min(18, Math.floor(tui.terminal.rows / 2))),
+              onToggleExpanded: () => {
+                if (panel.displayOnly && panel.surface === "fullscreen") { finish(panel, { status: "displayed" }); return; }
+                panel.userChangedSurface = true;
+                panel.surface = panel.surface === "inline" ? "fullscreen" : "inline";
+                panel.close?.(SWITCH_SURFACE);
+              },
+              onDone: result => finish(panel, result),
+            });
+            panel.view.setSurface(panel.surface);
+            const view = panel.view;
+            if (panel.result) done(panel.result);
+            // Pi disposes each mounted component on close. Keep the underlying
+            // view alive across surface switches to preserve drafts and focus.
+            return {
+              model: panel.model,
+              get focused() { return view.focused; },
+              set focused(value: boolean) { view.focused = value; },
+              render: (width: number) => view.render(width),
+              invalidate: () => view.invalidate(),
+              handleInput: (data: string) => {
+                if (panel.displayOnly && !panel.model.streaming && matchesKey(data, "enter")) finish(panel, { status: "displayed" });
+                else view.handleInput(data);
+              },
+              handleMouse: view.handleMouse.bind(view),
+              dispose() { if (panel.result) view.dispose(); },
+            };
+          }, panel.surface === "fullscreen" ? {
+            overlay: true,
+            overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 },
+          } : undefined);
+          if (result !== SWITCH_SURFACE) finish(panel, result);
+        }
+      } catch (error) { finish(panel, { status: "error", error: String(error) }); }
       return panel.result!;
-    }, (error: unknown) => {
-      finish(panel, { status: "error", error: String(error) });
-      return panel.result!;
-    });
+    })();
     bindAbort(panel, ctx.signal);
   }
 
@@ -130,11 +161,11 @@ export default function openuiExtension(pi: ExtensionAPI): void {
     panel.view?.refresh();
   }
 
-  function response(result: Outcome, receipt = createReceipt(result)) {
+  function response(result: Outcome, receipt = createReceipt(result), document?: InlineDocument) {
     const serialized = JSON.stringify(result);
     return {
       content: [{ type: "text" as const, text: serialized }],
-      details: { ...result, openuiReceipt: receipt },
+      details: { ...result, openuiReceipt: receipt, ...(document ? { openuiDocument: document } : {}) },
       // Native codemode returns structuredContent when outputSchema is declared.
       // Normalize through JSON so scripts and direct model calls see the same data.
       structuredContent: JSON.parse(serialized),
@@ -160,28 +191,35 @@ export default function openuiExtension(pi: ExtensionAPI): void {
     // Only one custom UI owns keyboard focus. Other calls open sequentially on execute.
     if (!panel && (visible || panels.size >= 32)) return;
     panel ??= create(call.id);
+    if (!panel.promise) panel.surface = call.arguments.presentation === "fullscreen" ? "fullscreen" : "inline";
     const summary = call.arguments.summary;
     if (summary && typeof summary === "object" && "title" in summary && typeof summary.title === "string") {
       panel.summary = { title: summary.title.slice(0, 160) };
     }
     update(panel, call.arguments.source, true);
-    show(panel, ctx, "OpenUI");
+    // Display-only content needs no focused dialog. Start a read-only preview
+    // only after the parsed document contains controls.
+    if (hasInteractiveContent(panel.model)) show(panel, ctx, "OpenUI");
   });
 
-  pi.registerTool({
+  registerToolWithConversion(pi, {
     name: "show_ui",
     label: "OpenUI",
-    description: "Show an interactive native terminal UI for structured choices, comparisons, forms or scenario exploration. Use a complete OpenUI Lang document. Local Set/Reset actions update the open panel; ToAssistant or a legacy action identifier submits current values. Returns submission, cancellation or diagnostics. Requires interactive Pi TUI mode.",
-    promptSnippet: "Help the user choose, compare or explore through an interactive terminal UI; waits for their action.",
+    description: "Render OpenUI Lang inline in Pi's terminal conversation. Display-only documents return immediately; choices and forms wait inline for user input. Use presentation: fullscreen for explicit expanded inspection; F2 toggles interactive forms. Local Set/Reset actions update controls, ToAssistant submits current values. Escape or Ctrl+C closes the form and returns status: cancelled as a normal result. Requires interactive Pi TUI mode.",
+    promptSnippet: "Render useful content inline, or collect structured input inline with optional fullscreen expansion.",
     promptGuidelines: [
       "Use the OpenUI component library in the openui prompt section. Submit a complete program in source, with root = Stack([...]).",
       "Use UI proactively when interaction helps; keep simple answers and requested plain-text comparisons in prose. When available, read the openui skill for interaction patterns and component selection. Ground displayed facts in context or tools and bind exploratory controls to visible local calculations.",
       "Optional summary.title and summary.fields choose the receipt title and field names; Pi handles theme and status. Continue from the actual submitted values, respect cancellation, and use error diagnostics to repair invalid documents. A submitted form means user input was received, not that the requested work was executed.",
-      "In native codemode, await tools.show_ui({ source }) and inspect result.status (submitted, cancelled or error). It waits for the user; do not set a short script timeout or open multiple panels concurrently. Include the result in script output if Pi needs to respond to it.",
+      "Prefer presentation: auto (the default) or inline for ordinary content and forms. Display-only documents return status: displayed without acknowledgement; do not add a Continue button just to show content. Use fullscreen only when explicitly requested or expanded inspection helps. No chart or Mermaid renderer is provided by this catalog.",
+      "In code/notebook execution, await the host's show_ui callable and inspect status (submitted, displayed, cancelled or error). Interactive forms wait for the user; avoid short timeouts and concurrent panels. Cancellation resolves normally and the caller continues; only use values when status is submitted, handle cancelled without treating defaults as user choices, and do not automatically reopen the form. Include relevant results in output when the agent needs them.",
     ],
     parameters: Type.Object({
       source: Type.String({ minLength: 1, maxLength: MAX_SOURCE_LENGTH, description: "Complete OpenUI Lang program, without Markdown fences." }),
       summary: Type.Optional(summarySchema),
+      presentation: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("inline"), Type.Literal("fullscreen")], {
+        description: "Default auto renders ordinary content and forms inline. Fullscreen requests expanded inspection. Users can toggle interactive forms with F2.",
+      })),
     }),
     outputSchema: outcomeSchema,
     executionMode: "sequential",
@@ -189,8 +227,11 @@ export default function openuiExtension(pi: ExtensionAPI): void {
     renderResult: (result, options, theme, context) => {
       if (options.isPartial) return new Text(theme.fg("muted", "Waiting for your response…"), 0, 0);
       const details = result.details as ToolDetails | undefined;
+      if (details?.status === "displayed" && isInlineDocument(details.openuiDocument)) {
+        return renderInlineDocument(details.openuiDocument, theme, { expanded: options.expanded });
+      }
       if (isSummaryOutcome(details)) {
-        const { openuiReceipt, ...outcome } = details;
+        const { openuiReceipt, openuiDocument: _document, ...outcome } = details;
         const receipt = isReceipt(openuiReceipt) && openuiReceipt.status === outcome.status ? openuiReceipt : createReceipt(outcome);
         return renderReceipt(receipt, theme, { expanded: options.expanded, outcome });
       }
@@ -206,7 +247,7 @@ export default function openuiExtension(pi: ExtensionAPI): void {
       return renderReceipt(createReceipt(outcome), theme, { expanded: options.expanded, outcome });
     },
     async execute(id, params, signal, _onUpdate, ctx) {
-      const reply = (result: Outcome, receipt?: Receipt) => response(result, receipt ?? createReceipt(result, undefined, params.summary));
+      const reply = (result: Outcome, receipt?: Receipt, document?: InlineDocument) => response(result, receipt ?? createReceipt(result, undefined, params.summary), document);
       if (ctx.mode !== "tui") return reply({ status: "error", error: "show_ui requires Pi interactive TUI mode; custom terminal components are unavailable in RPC, JSON and print modes." });
       if (signal?.aborted) {
         const old = panels.get(id);
@@ -215,6 +256,13 @@ export default function openuiExtension(pi: ExtensionAPI): void {
       }
       const panel = panels.get(id) ?? create(id);
       panel.summary = params.summary;
+      const requestedSurface = params.presentation === "fullscreen" ? "fullscreen" : "inline";
+      // Optional JSON arguments can arrive after source has opened a preview.
+      // Honor the completed request while preserving a user's explicit F2 choice.
+      if (!panel.userChangedSurface && panel.surface !== requestedSurface) {
+        panel.surface = requestedSurface;
+        if (panel.promise) panel.close?.(SWITCH_SURFACE);
+      }
       panel.executing = true;
       try {
         if (panel.result) return reply(panel.result, createReceipt(panel.result, panel.model, params.summary));
@@ -226,10 +274,18 @@ export default function openuiExtension(pi: ExtensionAPI): void {
           finish(panel, result);
           return reply(result, panel.receipt);
         }
+        panel.displayOnly = !hasInteractiveContent(panel.model);
+        if (panel.displayOnly) {
+          panel.document = createInlineDocument(params.source, params.summary?.title);
+          if (params.presentation !== "fullscreen") {
+            finish(panel, { status: "displayed" });
+            return reply(panel.result!, panel.receipt, panel.document);
+          }
+        }
         show(panel, ctx, params.summary?.title || "OpenUI");
         bindAbort(panel, signal);
         const result = panel.result ?? await panel.promise!;
-        return reply(result, panel.receipt);
+        return reply(result, panel.receipt, result.status === "displayed" ? panel.document : undefined);
       } finally {
         release(panel);
       }
@@ -237,15 +293,15 @@ export default function openuiExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("openui-demo", {
-    description: "Try OpenUI components; --actions demonstrates buttons, --catalog shows the full library, --stream previews parsing.",
+    description: "Try inline OpenUI; --fullscreen expands, --actions demonstrates buttons, --catalog shows all components, --stream previews parsing.",
     async handler(args, ctx) {
       if (ctx.mode !== "tui") {
         ctx.ui.notify("/openui-demo requires Pi interactive TUI mode.", "error");
         return;
       }
       const flags = args.trim() ? args.trim().split(/\s+/) : [];
-      if (new Set(flags).size !== flags.length || flags.some(flag => !["--stream", "--actions", "--catalog"].includes(flag)) || (flags.includes("--actions") && flags.includes("--catalog"))) {
-        ctx.ui.notify("Usage: /openui-demo [--actions | --catalog] [--stream]", "error");
+      if (new Set(flags).size !== flags.length || flags.some(flag => !["--stream", "--actions", "--catalog", "--fullscreen"].includes(flag)) || (flags.includes("--actions") && flags.includes("--catalog"))) {
+        ctx.ui.notify("Usage: /openui-demo [--actions | --catalog] [--stream] [--fullscreen]", "error");
         return;
       }
       if (visible) {
@@ -253,6 +309,7 @@ export default function openuiExtension(pi: ExtensionAPI): void {
         return;
       }
       const panel = create(`demo:${Date.now()}`);
+      panel.surface = flags.includes("--fullscreen") ? "fullscreen" : "inline";
       panel.summary = { title: flags.includes("--catalog") ? "Component catalog" : flags.includes("--actions") ? "Action choices" : "Next step" };
       const streaming = flags.includes("--stream");
       const source = flags.includes("--catalog") ? CATALOG_DEMO_SOURCE : flags.includes("--actions") ? ACTIONS_DEMO_SOURCE : DEMO_SOURCE;

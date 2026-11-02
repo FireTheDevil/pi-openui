@@ -19,6 +19,11 @@ export interface ViewOptions {
   title?: string;
   theme?: HostTheme;
   fillHeight?: boolean;
+  /** Inline components share Pi's editor dock with the surrounding transcript. */
+  surface?: "inline" | "fullscreen";
+  onToggleExpanded?(): void;
+  /** Host handles Enter as a normal close for a display-only expanded document. */
+  dismissOnEnter?: boolean;
 }
 type PageAncestor = { key: string; value: string };
 type Control = { key: string; node: ElementNode; widget?: FieldControl; pages: PageAncestor[] };
@@ -52,8 +57,12 @@ export class OpenUIView implements Component, Focusable {
   private viewportSize?: { width: number; height: number };
   private mouseGesture?: { hit: MouseHit; dragged: boolean; x: number; y: number };
   private style: PresentationStyle;
+  private surface?: "inline" | "fullscreen";
+  private surfaceToggle?: { x: number; y: number; width: number };
+  private surfaceGesture?: { x: number; y: number; cancelled?: boolean };
 
   constructor(readonly model: DocumentModel, private readonly options: ViewOptions) {
+    this.surface = options.surface;
     this.style = presentation(() => this.options.theme, { requestRender: () => this.options.requestRender(), getHeight: () => this.options.getHeight() });
     this.refresh();
   }
@@ -98,7 +107,18 @@ export class OpenUIView implements Component, Focusable {
     this.options.requestRender();
   }
   invalidate(): void { for (const control of this.cache.values()) control.widget?.invalidate(); }
-  dispose(): void { this.closed = true; this.controls = []; this.cache.clear(); this.mouseHits = []; this.mouseGesture = undefined; }
+  /** Keep field drafts, focus, and local state when the host changes surfaces. */
+  setSurface(surface: "inline" | "fullscreen"): void {
+    if (this.surface === surface) return;
+    this.surface = surface;
+    this.mouseGesture = undefined;
+    this.surfaceGesture = undefined;
+    this.surfaceToggle = undefined;
+    this.followFocus = true;
+    this.invalidate();
+    this.options.requestRender();
+  }
+  dispose(): void { this.closed = true; this.controls = []; this.cache.clear(); this.mouseHits = []; this.mouseGesture = undefined; this.surfaceGesture = undefined; this.surfaceToggle = undefined; }
   private finish(result: UIResult): void { if (!this.closed) { this.closed = true; this.options.onDone(result); } }
   private moveFocus(delta: number): void {
     this.focusIndex = this.controls.length ? (this.focusIndex + delta + this.controls.length) % this.controls.length : 0;
@@ -168,6 +188,7 @@ export class OpenUIView implements Component, Focusable {
   handleInput(data: string): void {
     if (this.closed) return;
     if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) { this.finish({ status: "cancelled" }); return; }
+    if (matchesKey(data, "f2") && this.options.onToggleExpanded) { this.options.onToggleExpanded(); return; }
     const paging = matchesKey(data, "pageUp") || matchesKey(data, "pageDown");
     if (this.model.streaming || !this.model.valid) {
       if (paging) this.scroll(matchesKey(data, "pageUp") ? -this.pageSize : this.pageSize);
@@ -202,6 +223,32 @@ export class OpenUIView implements Component, Focusable {
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     if (this.closed) return;
+    const toggle = this.surfaceToggle;
+    const onToggle = toggle && event.x >= toggle.x && event.x < toggle.x + toggle.width && event.y === toggle.y;
+    if (this.options.onToggleExpanded && event.button === "left" && !event.shift && !event.alt && !event.ctrl) {
+      if (event.type === "press" && onToggle) {
+        this.mouseGesture = undefined;
+        this.surfaceGesture = { x: event.x, y: event.y };
+        return { handled: true };
+      }
+      if (this.surfaceGesture) {
+        if (event.type === "drag" || event.x !== this.surfaceGesture.x || event.y !== this.surfaceGesture.y) {
+          this.surfaceGesture.cancelled = true;
+          return { handled: true };
+        }
+        if (event.type === "release") return { handled: true, render: false };
+        if (event.type === "click") {
+          const cancelled = this.surfaceGesture.cancelled;
+          this.surfaceGesture = undefined;
+          if (onToggle && !cancelled) this.options.onToggleExpanded();
+          return { handled: true, render: true };
+        }
+      } else if (event.type === "click" && onToggle) {
+        this.options.onToggleExpanded();
+        return { handled: true, render: true };
+      }
+    }
+    if (event.type === "press") this.surfaceGesture = undefined;
     const inside = event.x >= 0 && event.x < this.renderedWidth && event.y >= 0 && event.y < this.renderedHeight;
     const hit = inside ? this.mouseHits.find(region => event.x >= region.x && event.x < region.x + region.width && event.y >= region.top && event.y < region.bottom) : undefined;
     if (event.type === "wheel") {
@@ -384,19 +431,40 @@ export class OpenUIView implements Component, Focusable {
     return result;
   }
 
+  private documentBlock(width: number): Block {
+    const rendered = this.model.root ? this.renderNode(this.model.root, "root", width) : block();
+    if (!rendered.lines.length) rendered.lines.push(this.style.fg("muted", this.model.streaming ? "Waiting for OpenUI document…" : "No UI to display."));
+    if (this.model.diagnostics.length) rendered.lines.push(...this.text(`Document error: ${this.model.diagnostics.join("; ")}`, width, "error"));
+    return rendered;
+  }
+
+  /** Render a persistent transcript snapshot with no focus, viewport, or dialog chrome. */
+  renderStatic(width: number, maxLines?: number): string[] {
+    if (this.closed || width <= 0) return [];
+    width = Math.max(1, Math.floor(width));
+    const focused = this.focused;
+    this.focused = false;
+    try {
+      const lines = this.documentBlock(width).lines.map(line => truncateToWidth(line, width, ""));
+      return maxLines === undefined ? lines : lines.slice(0, Math.max(0, Math.floor(maxLines)));
+    } finally { this.focused = focused; }
+  }
+
   render(width: number): string[] {
     this.mouseHits = [];
+    this.surfaceToggle = undefined;
     this.renderedWidth = this.renderedHeight = 0;
     if (this.closed || width <= 0) { if (this.mouseGesture) this.mouseGesture.dragged = true; return []; }
     width = Math.max(1, Math.floor(width));
     const height = Math.max(1, Math.floor(this.options.getHeight()));
-    if (this.mouseGesture && (this.viewportSize?.width !== width || this.viewportSize?.height !== height)) this.mouseGesture.dragged = true;
+    if (this.viewportSize?.width !== width || this.viewportSize?.height !== height) {
+      if (this.mouseGesture) this.mouseGesture.dragged = true;
+      if (this.surfaceGesture) this.surfaceGesture.cancelled = true;
+    }
     this.viewportSize = { width, height };
     const contentWidth = width >= 40 ? Math.min(96, width - 4) : width;
-    const contentLeft = Math.floor((width - contentWidth) / 2);
-    const rendered = this.model.root ? this.renderNode(this.model.root, "root", contentWidth) : block();
-    if (!rendered.lines.length) rendered.lines.push(this.style.fg("muted", this.model.streaming ? "Waiting for OpenUI document…" : "No UI to display."));
-    if (this.model.diagnostics.length) rendered.lines.push(...this.text(`Document error: ${this.model.diagnostics.join("; ")}`, contentWidth, "error"));
+    const contentLeft = this.surface === "inline" ? (width >= 40 ? 2 : 0) : Math.floor((width - contentWidth) / 2);
+    const rendered = this.documentBlock(contentWidth);
     this.bodyLength = rendered.lines.length;
     this.pageSize = height < 3 ? height : height - 2;
     if (this.followFocus) {
@@ -409,21 +477,27 @@ export class OpenUIView implements Component, Focusable {
       }
     }
     this.offset = Math.max(0, Math.min(this.offset, Math.max(0, this.bodyLength - this.pageSize)));
-    const title = this.style.fg("accent", this.style.bold(truncateToWidth(safeText(this.options.title ?? "OpenUI").replace(/\n/g, " "), contentWidth, ""))) + (this.model.streaming ? this.style.fg("warning", " · receiving…") : "");
-    const rule = Math.max(0, contentWidth - visibleWidth(title) - 2);
-    const heading = title + (rule ? "  " + this.style.fg("borderMuted", "─".repeat(rule)) : "");
+    const toggleLabel = this.options.onToggleExpanded && contentWidth >= 28 ? `[ ${this.surface === "fullscreen" ? "Collapse" : "Expand"} F2 ]` : "";
+    const titleWidth = Math.max(1, contentWidth - (toggleLabel ? visibleWidth(toggleLabel) + 2 : 0));
+    const title = this.style.fg("accent", this.style.bold(truncateToWidth(safeText(this.options.title ?? "OpenUI").replace(/\n/g, " "), titleWidth, ""))) + (this.model.streaming ? this.style.fg("warning", " · receiving…") : "");
+    const clippedTitle = truncateToWidth(title, titleWidth, "");
+    const rule = Math.max(0, contentWidth - visibleWidth(clippedTitle) - (toggleLabel ? visibleWidth(toggleLabel) + 3 : 2));
+    const heading = clippedTitle + (rule ? "  " + this.style.fg("borderMuted", "─".repeat(rule)) : "") + (toggleLabel ? " " + this.style.fg("muted", toggleLabel) : "");
+    if (toggleLabel && height >= 3) this.surfaceToggle = { x: contentLeft + visibleWidth(heading) - visibleWidth(toggleLabel), y: 0, width: visibleWidth(toggleLabel) };
     const kind = this.controls[this.focusIndex]?.node.typeName;
     const actions: Record<string, string> = { Input: "type to edit", NumberInput: "type or ↑↓", Select: "↑↓ choose · Enter next", MultiSelect: "↑↓ move · Space toggle", Checkbox: "Space toggle", Toggle: "Space toggle", TextArea: "Enter newline · Ctrl+Enter next", Slider: "←→ adjust", DatePicker: "arrows choose · PgUp/PgDn month", Tree: "↑↓ move · ←→ expand · Enter select", Tabs: "←→ page · Enter next", Steps: "←→ step · Enter next", Button: "Enter/Space activate" };
     const actionHint = kind ? actions[kind] ?? "Enter activate" : "PgUp/PgDn scroll";
-    const fullHint = `Tab/Shift+Tab focus · ${actionHint} · Esc cancel${this.bodyLength > this.pageSize && kind ? " · PgUp/PgDn scroll" : ""}`;
+    const expandHint = this.options.onToggleExpanded ? ` · F2 ${this.surface === "fullscreen" ? "collapse" : "expand"}` : "";
+    const fullHint = `Tab/Shift+Tab focus · ${actionHint}${expandHint} · Esc cancel${this.bodyLength > this.pageSize && kind ? " · PgUp/PgDn scroll" : ""}`;
     const hints = this.actionError ? ["Action failed · edit or retry · Esc cancel", "Action failed · Esc cancel"]
       : this.model.streaming ? ["Receiving… · waiting for complete document · Esc cancel", "Receiving… · Esc cancel"]
       : !this.model.valid ? ["Check document · Esc cancel"]
-      : [fullHint, `Tab focus · ${actionHint} · Esc cancel`, "Tab next · Enter activate · Esc cancel", "Tab next · Esc cancel"];
+      : this.options.dismissOnEnter && !this.controls.length ? [`Enter close${expandHint} · PgUp/PgDn scroll · Esc cancel`, `Enter close${expandHint} · Esc cancel`, "Enter close · Esc cancel"]
+      : [fullHint, `Tab focus · ${actionHint}${expandHint} · Esc cancel`, `Tab next${expandHint} · Esc cancel`, "Tab next · Enter activate · Esc cancel", "Tab next · Esc cancel"];
     const hint = [...hints, "Esc cancel"].find(value => visibleWidth(value) <= contentWidth) ?? "Esc";
     const body = rendered.lines.slice(this.offset, this.offset + this.pageSize);
     const visibleLength = body.length;
-    if (this.options.fillHeight) while (body.length < this.pageSize) body.push("");
+    if (this.surface === "fullscreen" || (this.surface === undefined && this.options.fillHeight)) while (body.length < this.pageSize) body.push("");
     const result = height < 3 ? body : [heading, ...body, this.style.fg(this.actionError ? "error" : "muted", hint)];
     const top = height < 3 ? 0 : 1;
     this.mouseHits = rendered.hits.map(hit => {

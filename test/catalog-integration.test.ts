@@ -28,7 +28,7 @@ function host() {
     sendMessage: (message: {content:string}) => sent.push(message.content),
   } as unknown as ExtensionAPI;
   const ctx = {
-    mode: "tui", hasUI: true,
+    mode: "tui", hasUI: true, abort() {},
     ui: {
       notify: (message: string) => { throw new Error(message); },
       custom: (factory: Function) => new Promise(resolve => {
@@ -54,12 +54,12 @@ function host() {
   return {
     sent, lines, click, get closed() { return closed; }, get model() { return view.model; },
     key(data: string) { lines(); view.handleInput(data); },
-    command(args = "--catalog") { return commands.get("openui-demo").handler(args, ctx); },
-    execute() { return tools.get("show_ui").execute("catalog", { source: CATALOG_DEMO_SOURCE }, undefined, undefined, ctx); },
+    command(args = "--catalog") { return commands.get("openui-demo").handler(args + " --fullscreen", ctx); },
+    execute() { return tools.get("show_ui").execute("catalog", { source: CATALOG_DEMO_SOURCE, presentation: "fullscreen" }, undefined, undefined, ctx); },
     stream() {
       handlers.get("message_update")!({ assistantMessageEvent: {
         type: "toolcall_delta", contentIndex: 0, delta: "",
-        partial: { content: [{ type: "toolCall", id: "catalog", name: "show_ui", arguments: { source: CATALOG_DEMO_SOURCE } }] },
+        partial: { content: [{ type: "toolCall", id: "catalog", name: "show_ui", arguments: { source: CATALOG_DEMO_SOURCE, presentation: "fullscreen" } }] },
       } }, ctx);
     },
   };

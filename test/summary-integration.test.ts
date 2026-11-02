@@ -35,7 +35,7 @@ function host() {
     sendMessage: (message: unknown, options: unknown) => messages.push({ message, options }),
     sendUserMessage() { userMessages++; },
   } as unknown as ExtensionAPI;
-  const ctx = { mode: "tui", hasUI: true, sessionManager: { getBranch: () => entries }, ui: {
+  const ctx = { mode: "tui", hasUI: true, abort() {}, sessionManager: { getBranch: () => entries }, ui: {
     notify() {},
     custom: (factory: Function) => new Promise(resolve => {
       view = factory({ terminal: { rows: 50 }, requestRender() {} }, theme, {}, resolve);
@@ -58,7 +58,7 @@ function host() {
 
 test("tool receipts select readable fields while preserving the complete typed machine result", async () => {
   const h = host(), tool = h.tools.get("show_ui");
-  const params = { source: SOURCE, summary: { title: "Review configuration", fields: ["priority", "retries"] } };
+  const params = { source: SOURCE, presentation: "fullscreen", summary: { title: "Review configuration", fields: ["priority", "retries"] } };
   const pending = tool.execute("direct", params, undefined, undefined, h.ctx);
   h.click("Submit review");
   const result = await pending;
@@ -123,7 +123,7 @@ test("Pi validation errors and incomplete historical results render safely", () 
 
 test("demo sends one themed custom message containing the complete action", async () => {
   const h = host();
-  const pending = h.commands.get("openui-demo").handler("", h.ctx);
+  const pending = h.commands.get("openui-demo").handler("--fullscreen", h.ctx);
   h.click("Send to Pi");
   await pending;
   assert.equal(h.messages.length, 1);

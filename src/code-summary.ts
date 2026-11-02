@@ -1,6 +1,7 @@
 import { Container, Spacer, Text, type Component } from "@earendil-works/pi-tui";
 import type { ExtensionAPI, ExtensionContext, ToolExecutionEndEvent, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { renderReceipt, type Receipt, type SummaryOutcome } from "./summary.js";
+import { isInlineDocument, renderInlineDocument, type InlineDocument } from "./inline-document.js";
 
 /** Custom entries persist presentation metadata without adding model messages. */
 export const CODE_RECEIPT_ENTRY = "openui-code-receipt";
@@ -12,6 +13,7 @@ type ReceiptRecord = {
   toolCallId: string;
   receipt: Receipt;
   outcome: SummaryOutcome;
+  document?: InlineDocument;
 };
 type RowState = { generation: number; originalCall?: Component; originalResult?: Component; compact?: boolean; queued?: boolean };
 const rowKey = Symbol("openuiCodeSummary");
@@ -19,21 +21,22 @@ const scriptHeader = /^Script (completed|failed)\nWall time [\d.]+ seconds\nOutp
 const object = (value: unknown): value is Record<string, any> => !!value && typeof value === "object" && !Array.isArray(value);
 
 function validReceipt(value: unknown): value is Receipt {
-  return object(value) && value.version === 1 && ["submitted", "cancelled", "error"].includes(value.status)
+  return object(value) && value.version === 1 && ["submitted", "displayed", "cancelled", "error"].includes(value.status)
     && typeof value.title === "string" && Array.isArray(value.fields) && value.fields.length <= 256
     && value.fields.every(field => object(field) && [field.name, field.label, field.value].every(item => typeof item === "string"))
     && (value.message === undefined || typeof value.message === "string")
     && (value.error === undefined || typeof value.error === "string");
 }
 function validOutcome(value: unknown): value is SummaryOutcome {
-  return object(value) && (value.status === "cancelled"
+  return object(value) && (value.status === "cancelled" || value.status === "displayed"
     || value.status === "error" && typeof value.error === "string"
     || value.status === "submitted" && typeof value.action === "string" && object(value.values) && object(value.state));
 }
 function validRecord(value: unknown): value is ReceiptRecord {
   return object(value) && value.version === 1 && typeof value.parentToolCallId === "string"
     && typeof value.toolCallId === "string" && validReceipt(value.receipt) && validOutcome(value.outcome)
-    && value.receipt.status === value.outcome.status;
+    && value.receipt.status === value.outcome.status
+    && (value.document === undefined || value.outcome.status === "displayed" && isInlineDocument(value.document));
 }
 
 /** Only a complete known JSON value (or Pi's exact multiple-text framing) is redundant. */
@@ -92,10 +95,12 @@ export function registerCodeSummaries(pi: ExtensionAPI) {
     if (event.toolName !== "show_ui" || !event.parentToolCallId) return;
     const receipt: unknown = event.result?.details?.openuiReceipt;
     const outcome: unknown = event.result?.structuredContent;
+    const document = outcome && object(outcome) && outcome.status === "displayed" && isInlineDocument(event.result?.details?.openuiDocument)
+      ? event.result.details.openuiDocument : undefined;
     if (!validReceipt(receipt) || !validOutcome(outcome) || receipt.status !== outcome.status || records.has(event.toolCallId)) return;
     // Snapshot the result before a script can modify its returned object.
     const entry: ReceiptRecord = JSON.parse(JSON.stringify({ version: 1, parentToolCallId: event.parentToolCallId,
-      toolCallId: event.toolCallId, receipt, outcome }));
+      toolCallId: event.toolCallId, receipt, outcome, ...(document ? { document } : {}) }));
     pi.appendEntry(CODE_RECEIPT_ENTRY, entry);
     records.set(event.toolCallId, entry);
   }
@@ -120,6 +125,7 @@ export function registerCodeSummaries(pi: ExtensionAPI) {
   // nested form finishes, independently of the remaining script execution.
   pi.registerEntryRenderer(CODE_RECEIPT_ENTRY, (entry, options, theme) => {
     if (!validRecord(entry.data)) return undefined;
+    if (entry.data.document) return renderInlineDocument(entry.data.document, theme, { expanded: options.expanded });
     return renderReceipt(entry.data.receipt, theme, { expanded: options.expanded, outcome: entry.data.outcome });
   });
   pi.registerToolRenderer((name, next) => {
@@ -161,7 +167,9 @@ export function registerCodeSummaries(pi: ExtensionAPI) {
         const component = new Container();
         component.addChild(new Spacer(1));
         const count = parts.receipts.length;
-        component.addChild(new Text(theme.fg("muted", `${count} OpenUI ${count === 1 ? "response" : "responses"} · summary below · Ctrl+O execution details`), 0, 0));
+        const documentsOnly = parts.receipts.every(item => item.outcome.status === "displayed");
+        const label = documentsOnly ? (count === 1 ? "document" : "documents") : (count === 1 ? "response" : "responses");
+        component.addChild(new Text(theme.fg("muted", `${count} OpenUI ${label} · ${documentsOnly ? "rendered" : "summary"} below · Ctrl+O execution details`), 0, 0));
         // The result sent to Pi is never changed. This copy affects terminal presentation only.
         // Mixed output is preserved verbatim unless an entire block is an exact known result.
         const displayResult = { ...result, content: parts.content,

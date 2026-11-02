@@ -4,6 +4,7 @@ import { Text, stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { EntryRenderer, ExtensionAPI, ExtensionContext, ToolRendererResolver, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { CODE_RECEIPT_ENTRY, registerCodeSummaries } from "../src/code-summary.js";
 import { createReceipt, type SummaryOutcome } from "../src/summary.js";
+import { createInlineDocument, type InlineDocument } from "../src/inline-document.js";
 
 const outcome: SummaryOutcome = { status: "submitted", action: "continue_conversation", message: "Review configuration",
   values: { owner: "Ada", checks: ["Tests", "Types"], enabled: true, count: 3 }, state: { $owner: "Ada", $internal: "preserved" } };
@@ -41,12 +42,12 @@ function fixture() {
     isPartial: false, expanded: false, showImages: true, isError: false, durationMs: 1000, outputPad: 1 });
   const call = (id = "code/1", name = "show_ui") => ({ id, name, args: '{"source":"SECRET_SOURCE"}', status: "ok" });
   const result = (items: string[] = [JSON.stringify(outcome)], calls = [call()]) => ({ content: [{ type: "text" as const, text: header }, ...items.map(value => ({ type: "text" as const, text: value }))], details: { calls } });
-  function record(value: SummaryOutcome = outcome, id = "code/1", parent: string | undefined = "code") {
+  function record(value: SummaryOutcome = outcome, id = "code/1", parent: string | undefined = "code", document?: InlineDocument) {
     const receipt = createReceipt(value, undefined, { title: "Review setup" });
     const raw = clone(value);
     hooks.onToolEnd({ type: "tool_execution_end", toolName: "show_ui", toolCallId: id, parentToolCallId: parent,
       isError: value.status === "error", result: { content: [{ type: "text", text: JSON.stringify(raw) }], structuredContent: raw,
-        details: { ...raw, openuiReceipt: receipt } } });
+        details: { ...raw, openuiReceipt: receipt, ...(document ? { openuiDocument: document } : {}) } } });
     return raw;
   }
   function rehydrate(branch: any[]) {
@@ -179,4 +180,28 @@ test("direct calls, duplicate events and malformed persistence cannot create dup
   assert.equal(f.renderEntry(malformed), undefined);
   const context = f.context();
   assert.match(text(f.wrapped.renderResult!(f.result(), { expanded: false, isPartial: false }, theme, context)), /\$internal/);
+});
+
+test("display-only nested documents persist actual content independently of code output and session reload", () => {
+  const f = fixture();
+  const value: SummaryOutcome = { status: "displayed" };
+  const document = createInlineDocument('root = Stack([Text("Deployment comparison"), Table(["Option","Build time"],[["A","2 minutes"],["B","5 minutes"]])]);', "Build options");
+  const raw = f.record(value, "code/1", "code", document);
+  assert.deepEqual(raw, { status: "displayed" });
+  assert.match(f.immediate[0], /Build options/);
+  assert.match(f.immediate[0], /Deployment comparison/);
+  assert.match(f.immediate[0], /2 minutes/);
+  assert.doesNotMatch(f.immediate[0], /Submitted|Esc cancel/);
+  const entry = clone(f.appended[0]);
+  f.hooks.clear();
+  f.rehydrate([entry]);
+  assert.match(text(f.renderEntry(entry)), /5 minutes/);
+  assert.equal(entry.data.document.source, document.source);
+  const result = f.result([JSON.stringify(raw)]);
+  const preserved = clone(result);
+  const rendered = text(f.wrapped.renderResult!(result, { expanded: false, isPartial: false }, theme, f.context()));
+  assert.match(rendered, /1 OpenUI document · rendered below/);
+  assert.doesNotMatch(rendered, /"status"/);
+  assert.deepEqual(result, preserved);
+  assert.equal(f.renderEntry({ ...entry, data: { ...entry.data, document: { version: 1, source: null, title: "Invalid" } } }), undefined);
 });

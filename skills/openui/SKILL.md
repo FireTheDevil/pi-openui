@@ -1,6 +1,6 @@
 ---
 name: openui
-description: Choose and build useful interactive terminal interfaces with show_ui and OpenUI Lang. Use for structured decisions, comparing alternatives, exploring how inputs change outcomes, collecting related answers, or guiding a workflow, even when the user has not explicitly requested a UI. Covers component selection, grounded data, reactive state, actions, native code mode and themed receipts.
+description: Choose and build useful inline terminal displays and interactive interfaces with show_ui and OpenUI Lang. Use for structured decisions, comparing alternatives, exploring how inputs change outcomes, collecting related answers, or guiding a workflow, even when the user has not explicitly requested a UI. Covers presentation, components, grounded data, reactive state, actions, code/notebook execution and themed receipts.
 ---
 
 # OpenUI in Pi
@@ -11,9 +11,18 @@ The active `openui` prompt section supplies the component schemas and language r
 
 ## Decide whether interaction helps
 
-Start with the user's goal and available context. Identify what the user should be able to choose, adjust, compare or inspect. If there is no useful interaction, answer directly. Simple facts, short explanations, ordinary progress updates and already-authorized one-step edits usually need prose or the normal tools. A small static comparison can be a table in the conversation. Respect a request for plain text.
+Start with the user's goal and available context. Identify what the user should be able to choose, adjust, compare or inspect. Use a structured display when it improves reading, and controls when they make a meaningful decision or relationship easier to explore. Simple facts, short explanations, ordinary progress updates and already-authorized one-step edits usually need prose or the normal tools. A small static comparison can be a normal Markdown table; use an inline OpenUI display when its layout or formatting adds value. Respect a request for plain text.
 
-`show_ui` opens a modal panel and waits until the user submits or cancels. That interruption should have a purpose. Avoid panels that only decorate a response or demand an acknowledgement before routine work can continue. When the user needs an exported chart, document or other shareable artifact, create the requested artifact using the appropriate tools; a terminal panel is not an export format.
+`show_ui` defaults to inline presentation. A document containing only display components renders in the conversation and returns immediately; a document with fields, page navigation or buttons takes keyboard focus in Pi's inline editor area until the user acts. Avoid acknowledgement buttons before routine work can continue. When the user needs an exported chart, document or other shareable artifact, create the requested artifact using the appropriate tools; terminal output is not an export format.
+
+## Choose inline or expanded presentation
+
+- Use `presentation: "auto"` (the default) or `"inline"` for ordinary choices, small forms, comparisons, explanatory tables and code excerpts. Keep useful conversation context visible. Do not request fullscreen for every call.
+- Use `presentation: "fullscreen"` when the user asks for an expanded view or the task needs sustained inspection of dense content. Users can press F2 to expand or collapse an open interactive view while retaining their edits and focus. A fullscreen display-only document closes on Enter and remains inline; Escape closes it with a cancelled result.
+- For a display with no decision to collect, use Text, Markdown, Table, List, CodeBlock or other display components without a Button or field. An inline display returns `status: "displayed"`; it is neither a user choice nor approval. Use normal prose when it communicates the same information more simply.
+- The catalog still defines the available content. Requesting fullscreen does not add chart, Mermaid, flow-diagram or browser components. Use a supported textual representation or an appropriate artifact tool for those formats.
+
+The [presentation guide](../../docs/inline-ui.md) gives a display-only example and the code/notebook cancellation contract.
 
 Choose an interaction pattern before selecting components:
 
@@ -67,9 +76,9 @@ Before calling the tool, check that the document is complete, every control serv
 3. Give every field a unique name, including Tabs/Steps. Names are data keys; labels are what the user reads. Keep option, page and tree values unique.
 4. Use common `{description, required, disabled, error}` settings only when needed. Required boolean fields must be true. A disabled field retains its value in the submitted result. Disabled Tabs/Steps also disable their descendants.
 5. Keep the main action obvious. With several pages, put the final submit button outside the page group. Hidden fields retain their values and still validate; failed submission reveals an invalid enabled field.
-6. Design for keyboard use: Tab moves focus, arrows navigate, Space toggles choices, and Enter activates buttons. TextArea uses Enter for newlines and Ctrl+Enter to advance. Fullscreen Pi also supports mouse input. Regular TUI mode remains usable by keyboard.
+6. Design for keyboard use: Tab moves focus, arrows navigate, Space toggles choices, and Enter activates buttons. TextArea uses Enter for newlines and Ctrl+Enter to advance. F2 toggles inline/fullscreen presentation. Pi's fullscreen TUI supports mouse input on either presentation; its regular TUI mode remains usable by keyboard.
 
-Submit a complete OpenUI Lang document in `source`, without Markdown fences. Streaming previews are read-only until the final document is valid; do not rely on users editing an unfinished document. Open only one panel at a time. Escape and Ctrl+C cancel.
+Submit a complete OpenUI Lang document in `source`, without Markdown fences. Streaming previews are read-only until the final document is valid; do not rely on users editing an unfinished document. Open only one interactive view at a time. Escape and Ctrl+C close the view and return `status: "cancelled"` to the caller.
 
 ## Local actions and submission
 
@@ -78,7 +87,7 @@ Submit a complete OpenUI Lang document in `source`, without Markdown fences. Str
 - `@ToAssistant(message, context?)` submits the current typed values and closes the panel. If used in a plan, it must be the final step. A legacy string action identifier also submits.
 - All update targets must be declared variables. Query, Mutation, `@Run`, `@OpenUrl` and external tool execution are unsupported button actions.
 
-Check the result's `status`. On `submitted`, use the actual `values` for field answers and `context` for any supplied action payload; do not reconstruct answers from defaults or the receipt. On `cancelled`, stop that input flow and respect the cancellation. On `error`, use the diagnostics to correct the specific problem instead of resending the same document. If a valid UI cannot be produced, explain the issue and use an appropriate conversational fallback. Do not turn cancellation into an automatic retry.
+Check the result's `status`. On `submitted`, use the actual `values` for field answers and `context` for any supplied action payload; do not reconstruct answers from defaults or the receipt. On `displayed`, content was shown without collecting input; continue only work already authorized independently of that display. On `cancelled`, the form was dismissed and supplied no choices. The awaiting code resumes normally, and the notebook stays running. Handle this result explicitly: skip work that requires the missing answer, continue any independently authorized work as appropriate, and do not substitute default choices or automatically reopen the form. On `error`, use the diagnostics to correct the specific problem instead of resending the same document. If a valid UI cannot be produced, explain the issue and use an appropriate conversational fallback. Do not turn cancellation into an automatic retry.
 
 Submission means the user supplied input. Continue the authorized task using that input, with a concise explanation of the next action when useful. The receipt already acknowledges the decision; avoid repeating its entire table or dumping JSON into the conversational reply. Do not claim that files changed, a deployment ran or another external action completed merely because the form was submitted.
 
@@ -168,16 +177,26 @@ root = Stack([
 ]);
 ```
 
-## Native code mode
+## Code and notebook execution
 
-When `show_ui` is callable through native `codemode`, await it. The promise stays pending while the user edits fields and runs local actions, then resolves on submission or cancellation. Avoid short script deadlines and concurrent panels.
+When `show_ui` is callable through native `codemode`, await it. An interactive call stays pending while the user edits fields and runs local actions, then returns a submitted result. Display-only inline calls return immediately with `status: "displayed"`. Cancelling the form resolves the same promise with `{status: "cancelled"}`. Code after the await can handle that result; no notebook restart is required. Avoid short script deadlines and concurrent views.
 
 ```js
 const result = await tools.show_ui({
   source: 'root = Stack([Select("depth", "Review depth", ["Focused", "Thorough"], "Focused"), Button("Send choice", @ToAssistant("Use this review depth"))]);',
   summary: { title: "Review depth", fields: ["depth"] }
 });
-text(result);
+if (result.status === "submitted") {
+  text({ status: result.status, depth: result.values.depth });
+} else {
+  text(result); // cancellation/display/diagnostics are ordinary outcomes
+}
 ```
 
-Only script output reaches the model after native code mode finishes. Output the result or the fields needed for the next step; retaining a value in a JavaScript variable alone does not return it to the model. The receipt changes terminal presentation while preserving the script's output data. Keep `show_ui` active alongside `codemode`; keep `read` or `bash` available for Pi's skill discovery and loading. This extension targets native Pi code mode; third-party notebook adapters use separate APIs.
+Only script output reaches the model after native code mode finishes. Output the result or the fields needed for the next step; retaining a value in a JavaScript variable alone does not return it to the model. The receipt changes terminal presentation while preserving the script's output data. Keep `show_ui` active alongside `codemode`; keep `read` or `bash` available for Pi's skill discovery and loading.
+
+`@howaboua/pi-codex-conversion` 4.0.7 exposes the same `await tools.show_ui(...)` call and structured result through its Code/Notebook tool bridge. Use the adapter's advertised enclosing execution tool; do not assume it is named `codemode`. Notebook bindings persist between cells, so avoid redeclaring an existing top-level `const`. Other adapters may expose a different namespace or envelope: follow their discovered API. Await the UI, inspect its status before using answers, and emit the relevant typed result for the model. A cancelled form supplies no choices. Branch on its status before using values or calling tools that depend on a submitted answer. Inline/fullscreen presentation and component semantics are the same whichever adapter invokes the tool.
+
+The conversion integration keeps a pending `show_ui` attached to its enclosing cell even if the cell's yield budget elapses. Do not interpret elapsed yield time as a user response or launch another UI to replace the waiting one. Both submission and cancellation finish the UI call and return their structured result to the waiting code.
+
+Form dismissal leaves the running cell and notebook state intact in conversion Code, Deno Notebook, JavaScript Notebook and TypeScript Notebook modes. Do not restart a notebook because a form returned `cancelled`. A separate host stop, timeout or session shutdown follows the host's normal cancellation lifecycle.

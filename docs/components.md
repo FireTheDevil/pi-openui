@@ -79,7 +79,7 @@ Display properties may depend on state. For example, `Text("Retries: " + $retrie
 
 ## Keyboard and mouse
 
-Tab and Shift+Tab move between enabled controls on the visible page. Escape or Ctrl+C cancels the panel. Page Up and Page Down scroll the panel; when a calendar is focused they change months. Fullscreen mode also supports pointer input; regular terminal mode retains keyboard interaction.
+Tab and Shift+Tab move between enabled controls on the visible page. F2 expands an inline view or collapses it, preserving edits and focus. Escape or Ctrl+C closes the view and returns `status: "cancelled"`; a waiting code or notebook cell resumes normally with that result. Page Up and Page Down scroll the view; when a calendar is focused they change months. Pi's fullscreen TUI supports pointer input in either OpenUI presentation; regular terminal mode retains keyboard interaction.
 
 | Control | Keys |
 | --- | --- |
