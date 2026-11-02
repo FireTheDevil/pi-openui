@@ -1,0 +1,18 @@
+$file = "validate";
+heading = $file == "persist" ? "Atomic writes" : $file == "route" ? "The request boundary" : "Validate before side effects";
+explanation = $file == "persist" ? "Use one transaction so partial orders never escape." : $file == "route" ? "Validate first, persist second, then return the receipt." : "Reject invalid quantities before touching storage.";
+snippet = $file == "persist" ? "async function saveOrder(order) {\n  return db.transaction(async tx => {\n    const row = await tx.orders.add(order);\n    await tx.items.addAll(row.id, order.items);\n    return row;\n  });\n}" : $file == "route" ? "app.post('/checkout', async request => {\n  const order = validateOrder(request.body);\n  const saved = await saveOrder(order);\n  return { id: saved.id, status: 'created' };\n});" : "function validateOrder(input) {\n  if (input.quantity < 1) {\n    throw new Error('Invalid quantity');\n  }\n  return checkoutSchema.parse(input);\n}";
+root = Stack([
+  Text("Example checkout service · choose a function to inspect its role", {tone: "muted"}),
+  Row([
+    Tree("file", "Code map", [
+      {value: "route", label: "POST /checkout", children: [
+        {value: "validate", label: "validateOrder()"},
+        {value: "persist", label: "saveOrder()"}
+      ]}
+    ], $file),
+    Card(heading, [Markdown(explanation), CodeBlock(snippet, "typescript")])
+  ]),
+  Divider("The invariant"),
+  Text("A rejected request writes nothing. A successful request saves the order and its items together.")
+]);
