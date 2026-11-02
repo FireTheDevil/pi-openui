@@ -69,7 +69,7 @@ function host(mode = "tui") {
       events.get("message_update")!({
         assistantMessageEvent: {
           type: "toolcall_delta", contentIndex: 0, delta: "ignored raw JSON",
-          partial: { content: [{ type: "toolCall", name: "show_ui", id, arguments: { source } }] },
+          partial: { content: [{ type: "toolCall", name: "show_ui", id, arguments: { interaction: "collect", source } }] },
         },
       }, ctx);
     },

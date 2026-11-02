@@ -12,7 +12,7 @@ text(result);
 
 The receipt uses the form's labels and rich option labels, not internal variable names. Field selection only changes the display. Numbers, booleans, arrays, hidden fields and internal state remain in the machine result. Cancellation and errors have their own receipt status. “Submitted” means input was received; it does not assert that any requested work has been executed.
 
-Forms now open inline by default, with F2 available to expand them. A display-only inline document has no submission to summarize: its actual content remains in the transcript and the tool returns `status: "displayed"`. See [inline presentation](inline-ui.md). The screenshots below show the receipt feature's original v0.5.0 verification; they are not captures of the newer inline interaction layout.
+Answer-collecting forms open inline by default, with F2 available to expand them. A display-only inline document has no submission to summarize: its actual content remains in the transcript and the tool returns `status: "displayed"`. A local interactive widget returns `status: "mounted"` plus its ID and renders separately in the transcript. Mounting is not a submission or final choice; edits, blur and dismissal never create a receipt containing selected values. `summary.title` labels the widget and `summary.fields` does not export local state. See [local interaction](local-interaction.md) and [inline presentation](inline-ui.md). The screenshots below show the receipt feature's original v0.5.0 verification; they are not captures of the newer inline interaction layout.
 
 ## Native code mode
 
@@ -32,7 +32,7 @@ Direct `show_ui` calls display their receipt in the tool result. The same render
 
 ## Model guidance
 
-The bundled [openui skill](../skills/openui/SKILL.md) teaches component selection, form layout, typed values, actions, cancellation and receipt field selection. The extension independently injects the lang-core schemas and core rules into the active tool prompt. Install the package to discover both resources, or use `--skill ./skills/openui/SKILL.md` when loading the extension directly with `-e`. Pi needs `read` or `bash` available to include skills in its model prompt.
+The bundled [openui skill](../skills/openui/SKILL.md) teaches static/local/collect mode selection, components, layout, typed values, actions, focus, cancellation and receipt field selection. The extension independently injects the lang-core schemas and core rules into the active tool prompt. Install the package to discover both resources, or use `--skill ./skills/openui/SKILL.md` when loading the extension directly with `-e`. Pi needs `read` or `bash` available to include skills in its model prompt.
 
 ## Verification
 

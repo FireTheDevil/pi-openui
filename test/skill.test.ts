@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import { formatSkillsForPrompt, loadSkills } from "@earendil-works/pi-coding-agent";
 import { childNodes, DocumentModel } from "../src/model.js";
 import type { ElementNode } from "@openuidev/lang-core";
+import { localDocumentDiagnostics } from "../src/local-policy.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const skillPath = resolve(root, "skills/openui/SKILL.md");
@@ -32,7 +33,7 @@ test("Pi discovers the bundled OpenUI skill without diagnostics and exposes it t
 test("complete OpenUI examples in the skill parse with the shipped component schemas", () => {
   const source = readFileSync(skillPath, "utf8");
   const examples = [...source.matchAll(/```openui\n([\s\S]*?)\n```/g)].map(match => match[1]);
-  assert.equal(examples.length, 3);
+  assert.equal(examples.length, 4);
   for (const [index, example] of examples.entries()) {
     const model = new DocumentModel(example);
     try {
@@ -41,12 +42,31 @@ test("complete OpenUI examples in the skill parse with the shipped component sch
       else if (index === 1) {
         assert.deepEqual(model.formValues, { owner: "", checks: ["tests"], retries: 2, confirmed: false });
         assert.deepEqual(model.fieldErrors, { owner: "Required.", confirmed: "Must be checked." });
-      } else {
+      } else if (index === 2) {
         assert.deepEqual(model.formValues, { people: 2, hours: 3, rate: 50 });
         assert.deepEqual(model.fieldErrors, {});
+      } else {
+        assert.deepEqual(model.formValues, { workers: 4 });
+        assert.deepEqual(localDocumentDiagnostics(example), []);
       }
     } finally { model.dispose(); }
   }
+});
+
+test("the skill's local example recalculates and resets without a submission path", () => {
+  const skill = readFileSync(skillPath, "utf8");
+  const examples = [...skill.matchAll(/```openui\n([\s\S]*?)\n```/g)].map(match => match[1]);
+  const model = new DocumentModel(examples[3]);
+  const children = () => childNodes(model.root!);
+  const find = (type: string) => children().find(node => node.typeName === type)!;
+  try {
+    assert.equal(model.valid, true, model.diagnostics.join("; "));
+    model.setField(find("NumberInput"), 10);
+    assert.deepEqual(find("Table").props.rows, [["Basic", 42], ["Standard", 40], ["Pro", 40]]);
+    assert.deepEqual(model.activate(find("Button")), { status: "updated" });
+    assert.deepEqual(model.formValues, { workers: 4 });
+    assert.deepEqual(find("Table").props.rows, [["Basic", 18], ["Standard", 20], ["Pro", 40]]);
+  } finally { model.dispose(); }
 });
 
 test("the skill's scenario example recomputes locally, resets and submits the derived result", () => {

@@ -2,6 +2,8 @@
 
 Run `/openui-demo --catalog` to explore all 25 components, or add `--stream` to watch the document arrive. The demo has Forms, Layout, Display and Advanced pages. Complete the required Owner and confirmation fields before submitting. Reset restores the document's defaults.
 
+The same component catalog supports three contracts: static inline display, `interaction: "local"` for persistent exploration without an answer, and default/`interaction: "collect"` for a form that waits for input. Local mode is not limited to form fields: Tabs, Tree, local disclosure buttons and reactive text/table combinations work too. Removing a Submit button does not change the default waiting contract. See [local interaction](local-interaction.md) for focus and lifecycle.
+
 Every component is specified through `@openuidev/lang-core` and rendered using Pi's native TUI. Use `root = Stack([...])`. Arguments are positional in the order below; `?` marks an optional argument. The existing six component signatures remain compatible.
 
 ## Fields and controls
@@ -79,7 +81,7 @@ Display properties may depend on state. For example, `Text("Retries: " + $retrie
 
 ## Keyboard and mouse
 
-Tab and Shift+Tab move between enabled controls on the visible page. F2 expands an inline view or collapses it, preserving edits and focus. Escape or Ctrl+C closes the view and returns `status: "cancelled"`; a waiting code or notebook cell resumes normally with that result. Page Up and Page Down scroll the view; when a calendar is focused they change months. Pi's fullscreen TUI supports pointer input in either OpenUI presentation; regular terminal mode retains keyboard interaction.
+Tab and Shift+Tab move between enabled controls on the visible page. In collect mode, F2 expands/collapses the form and Escape/Ctrl+C returns `status: "cancelled"` to its waiting caller. In local mode, F6 transfers focus between chat and the widget; Shift+F6 cycles widgets; Escape/Ctrl+C returns focus to chat without dismissal or submission. Local widgets do not support fullscreen expansion. Page Up/Down scroll the focused view; when a calendar is focused they change months. Pi's fullscreen host supports pointer input; regular terminal mode retains keyboard interaction.
 
 | Control | Keys |
 | --- | --- |
@@ -99,8 +101,8 @@ Click controls to focus them; click a list option to select it, a checkbox to to
 
 ## Actions and validation
 
-`@Set`, `@Reset` and ordered `Action([...])` plans update local state without closing. `@ToAssistant(message, context?)` or a legacy action identifier submits current typed values to Pi. A plan validates before committing; failed structural updates roll back. See the README for the action contract and native code-mode examples.
+`@Set`, `@Reset` and ordered `Action([...])` plans update local state without closing. In collect mode, `@ToAssistant(message, context?)` or a legacy action identifier submits current typed values to Pi. Local mode rejects submission and external action paths before mounting, including hidden/conditional buttons; its Action plans may contain only Set/Reset. A plan validates before committing; failed structural updates roll back. See the README for the action contract and native code-mode examples.
 
-Required fields, explicit `settings.error`, invalid numeric drafts and invalid dates show errors that can be corrected. Invalid document structure, duplicate names, unknown components and malformed source produce diagnostics instead of executing actions. Streaming previews remain read-only until complete; cancellation is always available.
+Required fields, explicit `settings.error`, invalid numeric drafts and invalid dates show errors that can be corrected. Invalid document structure, duplicate names, unknown components and malformed source produce diagnostics instead of executing actions. Collect-mode streaming previews remain read-only until complete, with cancellation available. Local widgets mount only from complete, valid documents; Escape returns focus to chat and `/openui-close [id]` dismisses one.
 
 The catalog demo, model tests, native-control tests and actual Pi CLI runs cover layout navigation, typed fields, validation, local actions, submission, resizing and cancellation. See the [catalog gallery](catalog-demo.md) for actual terminal captures.

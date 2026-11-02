@@ -8,6 +8,7 @@ import type { ActionSubmission, DocumentModel } from "./model.js";
 import { childNodes, fieldOptions, isField, isElement, optionItems, type TabItem } from "./catalog.js";
 import { createFieldControl, type FieldControl } from "./controls.js";
 import { renderDisplay } from "./displays.js";
+import { localActionError } from "./local-policy.js";
 import { presentation, safeText, type HostTheme, type PresentationStyle } from "./presentation.js";
 export { safeText } from "./presentation.js";
 
@@ -24,6 +25,9 @@ export interface ViewOptions {
   onToggleExpanded?(): void;
   /** Host handles Enter as a normal close for a display-only expanded document. */
   dismissOnEnter?: boolean;
+  /** Local widgets never submit; Escape returns keyboard focus to chat. */
+  interaction?: "local";
+  onBlur?(): void;
 }
 type PageAncestor = { key: string; value: string };
 type Control = { key: string; node: ElementNode; widget?: FieldControl; pages: PageAncestor[] };
@@ -144,6 +148,10 @@ export class OpenUIView implements Component, Focusable {
     this.actionError = undefined;
     try {
       const action = control.node.props.action as string | { steps?: Array<{ type: string; target?: string; targets?: string[] }> };
+      if (this.options.interaction === "local") {
+        const error = localActionError(action);
+        if (error) { this.actionError = { key: control.key, message: error }; return; }
+      }
       const submits = typeof action === "string" || action?.steps?.some(step => step.type === "continue_conversation");
       const draftError = submits && [...this.cache.values()].find(item => !this.model.isDisabled(item.node) && item.widget?.error);
       if (draftError) {
@@ -187,7 +195,11 @@ export class OpenUIView implements Component, Focusable {
   }
   handleInput(data: string): void {
     if (this.closed) return;
-    if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) { this.finish({ status: "cancelled" }); return; }
+    if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
+      if (this.options.interaction === "local") this.options.onBlur?.();
+      else this.finish({ status: "cancelled" });
+      return;
+    }
     if (matchesKey(data, "f2") && this.options.onToggleExpanded) { this.options.onToggleExpanded(); return; }
     const paging = matchesKey(data, "pageUp") || matchesKey(data, "pageDown");
     if (this.model.streaming || !this.model.valid) {
@@ -489,7 +501,11 @@ export class OpenUIView implements Component, Focusable {
     const actionHint = kind ? actions[kind] ?? "Enter activate" : "PgUp/PgDn scroll";
     const expandHint = this.options.onToggleExpanded ? ` · F2 ${this.surface === "fullscreen" ? "collapse" : "expand"}` : "";
     const fullHint = `Tab/Shift+Tab focus · ${actionHint}${expandHint} · Esc cancel${this.bodyLength > this.pageSize && kind ? " · PgUp/PgDn scroll" : ""}`;
-    const hints = this.actionError ? ["Action failed · edit or retry · Esc cancel", "Action failed · Esc cancel"]
+    const localHints = this.focused
+      ? [`Tab focus · ${actionHint} · Esc/F6 chat`, "Tab next · Esc/F6 chat", "Esc chat"]
+      : ["Local exploration · F6 focus · /openui-close dismiss", "F6 focus · local only", "F6 focus"];
+    const hints = this.options.interaction === "local" ? (this.actionError ? ["Action failed · Esc/F6 chat", "Esc chat"] : localHints)
+      : this.actionError ? ["Action failed · edit or retry · Esc cancel", "Action failed · Esc cancel"]
       : this.model.streaming ? ["Receiving… · waiting for complete document · Esc cancel", "Receiving… · Esc cancel"]
       : !this.model.valid ? ["Check document · Esc cancel"]
       : this.options.dismissOnEnter && !this.controls.length ? [`Enter close${expandHint} · PgUp/PgDn scroll · Esc cancel`, `Enter close${expandHint} · Esc cancel`, "Enter close · Esc cancel"]

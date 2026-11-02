@@ -21,7 +21,7 @@ const scriptHeader = /^Script (completed|failed)\nWall time [\d.]+ seconds\nOutp
 const object = (value: unknown): value is Record<string, any> => !!value && typeof value === "object" && !Array.isArray(value);
 
 function validReceipt(value: unknown): value is Receipt {
-  return object(value) && value.version === 1 && ["submitted", "displayed", "cancelled", "error"].includes(value.status)
+  return object(value) && value.version === 1 && ["submitted", "displayed", "mounted", "cancelled", "error"].includes(value.status)
     && typeof value.title === "string" && Array.isArray(value.fields) && value.fields.length <= 256
     && value.fields.every(field => object(field) && [field.name, field.label, field.value].every(item => typeof item === "string"))
     && (value.message === undefined || typeof value.message === "string")
@@ -29,6 +29,7 @@ function validReceipt(value: unknown): value is Receipt {
 }
 function validOutcome(value: unknown): value is SummaryOutcome {
   return object(value) && (value.status === "cancelled" || value.status === "displayed"
+    || value.status === "mounted" && typeof value.widgetId === "string" && value.widgetId.length > 0
     || value.status === "error" && typeof value.error === "string"
     || value.status === "submitted" && typeof value.action === "string" && object(value.values) && object(value.state));
 }
@@ -125,6 +126,8 @@ export function registerCodeSummaries(pi: ExtensionAPI) {
   // nested form finishes, independently of the remaining script execution.
   pi.registerEntryRenderer(CODE_RECEIPT_ENTRY, (entry, options, theme) => {
     if (!validRecord(entry.data)) return undefined;
+    // The independent local-widget entry is already present in the transcript.
+    if (entry.data.outcome.status === "mounted") return undefined;
     if (entry.data.document) return renderInlineDocument(entry.data.document, theme, { expanded: options.expanded });
     return renderReceipt(entry.data.receipt, theme, { expanded: options.expanded, outcome: entry.data.outcome });
   });
@@ -167,7 +170,7 @@ export function registerCodeSummaries(pi: ExtensionAPI) {
         const component = new Container();
         component.addChild(new Spacer(1));
         const count = parts.receipts.length;
-        const documentsOnly = parts.receipts.every(item => item.outcome.status === "displayed");
+        const documentsOnly = parts.receipts.every(item => item.outcome.status === "displayed" || item.outcome.status === "mounted");
         const label = documentsOnly ? (count === 1 ? "document" : "documents") : (count === 1 ? "response" : "responses");
         component.addChild(new Text(theme.fg("muted", `${count} OpenUI ${label} · ${documentsOnly ? "rendered" : "summary"} below · Ctrl+O execution details`), 0, 0));
         // The result sent to Pi is never changed. This copy affects terminal presentation only.

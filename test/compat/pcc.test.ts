@@ -8,8 +8,10 @@ import { setTimeout as delay } from "node:timers/promises";
 import test from "node:test";
 import { Type } from "typebox";
 import type { ExtensionAPI, ExtensionToolContext } from "@earendil-works/pi-coding-agent";
-import type { Component } from "@earendil-works/pi-tui";
+import { stripTerminalSequences, type Component } from "@earendil-works/pi-tui";
 import openuiExtension from "../../src/index.js";
+import { HOSTING_EXPLORER_SOURCE } from "../../src/local-demo.js";
+import { OPENUI_LOCAL_ENTRY, OPENUI_LOCAL_CLOSE_ENTRY } from "../../src/local-widgets.js";
 
 // Opt-in integration suite: use the installed upstream package and its real
 // Code, Deno Notebook, JS Notebook and TS runtimes. PCC is deliberately not a
@@ -24,6 +26,7 @@ const { registerCodeModeTools } = await imported("dist/tools/code-mode/tools.js"
 const { createPiCodeModeBridge } = await imported("dist/adapter/code-mode/pi-tools.js");
 const { getCodeModeExtensionToolSnapshot } = await imported("dist/code-mode-extension-tools.js");
 const SOURCE = '$count = 1;\nroot = Stack([Text("Count: " + $count), Button("Add", @Set($count, $count + 1)), Button("Send", @ToAssistant("Count confirmed", {count: $count}))]);';
+const theme = { fg: (_color: string, value: string) => value, bg: (_color: string, value: string) => value, bold: (value: string) => value };
 
 type Mode = "code" | "notebook" | "ts" | "js";
 async function host(mode: Mode) {
@@ -36,6 +39,31 @@ async function host(mode: Mode) {
   const entries: any[] = [];
   const results: any[] = [];
   const markers: string[] = [];
+  const entryRenderers = new Map<string, Function>();
+  const commands = new Map<string, any>();
+  const terminalListeners = new Set<Function>();
+  const dockWidgets = new Map<string, Component & { dispose?(): void }>();
+  const chatMessages: string[] = [];
+  let chatDraft = "";
+  const editor = {
+    focused: true, invalidate() {}, render: () => [chatDraft],
+    getText: () => chatDraft, setText(value: string) { chatDraft = value; },
+    handleInput(data: string) {
+      if (data === "\r") { chatMessages.push(chatDraft); chatDraft = ""; }
+      else chatDraft += data;
+    },
+  };
+  let focus: Component & { focused?: boolean } = editor;
+  const tui = {
+    mode: "regular", terminal: { rows: 40, columns: 100 }, requestRender() {},
+    hasOverlay: () => false,
+    getFocusedComponent: () => focus,
+    setFocus(next: Component & { focused?: boolean }) {
+      if (focus) focus.focused = false;
+      focus = next;
+      if (focus) focus.focused = true;
+    },
+  };
   const bus = new EventEmitter();
   let component: (Component & { dispose?(): void }) | undefined;
   let notifyOpened: (() => void) | undefined;
@@ -64,11 +92,14 @@ async function host(mode: Mode) {
       callbacks.set(name, [...(callbacks.get(name) ?? []), handler]);
     },
     registerTool(tool: any) { tools.set(tool.name, tool); },
-    registerCommand() {}, registerToolRenderer() {}, registerMessageRenderer() {}, registerEntryRenderer() {},
+    registerCommand(name: string, command: any) { commands.set(name, command); },
+    registerToolRenderer() {}, registerMessageRenderer() {},
+    registerEntryRenderer(name: string, renderer: Function) { entryRenderers.set(name, renderer); },
     getActiveTools: () => [...tools.keys()],
     getAllTools: () => [...tools.values()],
-    appendEntry(customType: string, data: unknown) { entries.push({ type: "custom", customType, data }); },
+    appendEntry(customType: string, data: unknown) { entries.push({ type: "custom", customType, data: structuredClone(data) }); },
     sendMessage() { throw new Error("Tool execution must not enqueue another agent turn"); },
+    sendUserMessage() { throw new Error("Local UI changes must not enqueue user-answer messages"); },
   } as unknown as ExtensionAPI;
   const ctx = {
     cwd, mode: "tui", hasUI: true,
@@ -78,7 +109,12 @@ async function host(mode: Mode) {
     sessionManager: { getBranch: () => entries, getSessionId: () => `openui-pcc-${mode}`, getSessionFile: () => undefined },
     get tools() { return [...tools.values()]; },
     ui: {
-      notify() {},
+      theme, notify() {},
+      onTerminalInput(handler: Function) { terminalListeners.add(handler); return () => terminalListeners.delete(handler); },
+      setWidget(key: string, content: any) {
+        dockWidgets.get(key)?.dispose?.(); dockWidgets.delete(key);
+        if (typeof content === "function") dockWidgets.set(key, content(tui, theme));
+      },
       custom: (factory: Function) => new Promise(resolve => {
         opens++;
         let finished = false;
@@ -121,10 +157,31 @@ async function host(mode: Mode) {
     declared: [...tools.values()], callable: [tools.get("show_ui"), tools.get("marker")],
     registered: [...tools.values()], getNamespace: () => undefined,
   });
+  const localComponent = (index = 0): Component => {
+    const entry = entries.filter(entry => entry.customType === OPENUI_LOCAL_ENTRY)[index];
+    assert.ok(entry, "local widgets must have their own persistent conversation entry");
+    const rendered = entryRenderers.get(OPENUI_LOCAL_ENTRY)?.(entry, { expanded: true }, theme);
+    assert.ok(rendered);
+    return rendered;
+  };
   return {
-    results, markers, entries,
+    results, markers, entries, chatMessages, editor, emit,
     get closed() { return closed; }, get opens() { return opens; }, get abortCalls() { return abortCalls; },
     get lastCellId() { return lastCellId; },
+    get focus() { return focus; }, get listeners() { return terminalListeners.size; },
+    localRender(index = 0) { return localComponent(index).render(100).map(stripTerminalSequences).join("\n"); },
+    localKey(data: string) {
+      for (const entry of entries.filter(entry => entry.customType === OPENUI_LOCAL_ENTRY)) {
+        entryRenderers.get(OPENUI_LOCAL_ENTRY)?.(entry, { expanded: true }, theme)?.render(100);
+      }
+      for (const listener of terminalListeners) {
+        const result = listener(data);
+        if (result?.consume) return;
+        if (result?.data !== undefined) data = result.data;
+      }
+      focus?.handleInput?.(data);
+    },
+    async closeLocal(id: string) { await commands.get("openui-close").handler(id, ctx); },
     start(code: string) {
       active = new AbortController();
       parentId = `pcc-parent-${++call}`;
@@ -269,6 +326,67 @@ for (const mode of modes) {
       assert.equal(receipt.data.parentToolCallId, pending.parentId);
       assert.equal(receipt.data.document.source, source);
       assert.equal(receipt.data.outcome.status, "displayed");
+    } finally { await h.shutdown(); }
+  });
+
+  test(`PCC ${mode}: local widgets outlive their cell and remain interactive without returning edits`, { timeout: 45_000 }, async () => {
+    const h = await host(mode);
+    try {
+      await seedNotebook(h, mode);
+      const before = mode === "code" ? "" : "preservedValue = 42;";
+      const pending = h.start(`${before} const mounted = await tools.show_ui({source:${JSON.stringify(HOSTING_EXPLORER_SOURCE)},interaction:"local"}); text(mounted); await tools.marker({text:"AFTER_LOCAL_MOUNT"}); text("MOUNT_CELL_FINISHED");`);
+      const output = await complete(h, await pending.completed);
+      assert.match(JSON.stringify(output.content), /MOUNT_CELL_FINISHED/);
+      assert.equal(h.opens, 0, "local mounting cannot open a blocking custom view");
+      assert.equal(h.focus, h.editor, "the composer remains available throughout mounting");
+      assert.deepEqual(h.markers, ["AFTER_LOCAL_MOUNT"]);
+      const result = h.results.find(item => item.name === "show_ui").result;
+      const mounted = result.structuredContent;
+      assert.deepEqual(Object.keys(mounted).sort(), ["status", "widgetId"]);
+      assert.equal(mounted.status, "mounted");
+      assert.equal(typeof mounted.widgetId, "string");
+      assert.deepEqual(JSON.parse(result.content[0].text), mounted);
+      const entry = h.entries.find(entry => entry.customType === OPENUI_LOCAL_ENTRY);
+      assert.equal(entry.data.widgetId, mounted.widgetId);
+      assert.equal(entry.data.source, HOSTING_EXPLORER_SOURCE);
+      assert.match(h.localRender(), /Cheapest: Basic \(\$18\/month\)/);
+
+      await h.emit("turn_end", {});
+      await h.emit("agent_end", {});
+      const recordedResults = JSON.stringify(h.results);
+      const recordedEntries = JSON.stringify(h.entries);
+      h.localKey("\x1b[17~");
+      assert.notEqual(h.focus, h.editor);
+      for (let n = 0; n < 6; n++) h.localKey("\x1b[A");
+      assert.match(h.localRender(), /Cheapest: Standard and Pro \(\$40\/month\)/);
+      assert.match(h.localRender(), /Basic[^\n]*\$42/);
+      h.localKey("\x1b");
+      assert.equal(h.focus, h.editor);
+      h.localKey("Keep explaining while the explorer stays open."); h.localKey("\r");
+      assert.deepEqual(h.chatMessages, ["Keep explaining while the explorer stays open."]);
+      await h.emit("turn_start", {});
+      await h.emit("agent_start", {});
+      await assertNotebookRetained(h, mode);
+      await h.emit("turn_end", {});
+      await h.emit("agent_end", {});
+
+      h.localKey("\x1b[17~"); h.localKey("\x1b[A");
+      assert.match(h.localRender(), /Cheapest: Pro \(\$40\/month\)/);
+      assert.match(h.localRender(), /Basic[^\n]*\$46/);
+      assert.match(h.localRender(), /Standard[^\n]*\$44/);
+      h.localKey("\t"); h.localKey("\r");
+      assert.match(h.localRender(), /Cheapest: Basic \(\$18\/month\)/, "Reset remains local after subsequent cells");
+      assert.equal(JSON.stringify(h.results), recordedResults, "local edits and focus changes invoke no tools or result updates");
+      assert.equal(JSON.stringify(h.entries), recordedEntries, "edited values are not written to session entries");
+      assert.equal(h.abortCalls, 0);
+      assert.equal(h.closed, 0);
+      await h.closeLocal(mounted.widgetId);
+      assert.equal(h.focus, h.editor);
+      assert.equal(h.listeners, 0, "disposing the last widget removes its terminal listener");
+      const closeEntry = h.entries.find(entry => entry.customType === OPENUI_LOCAL_CLOSE_ENTRY);
+      assert.deepEqual(closeEntry.data, { version: 1, widgetId: mounted.widgetId });
+      assert.equal(JSON.stringify(h.results), recordedResults, "dismissal returns no edited values to the runtime");
+      assert.deepEqual(h.markers, ["AFTER_LOCAL_MOUNT"]);
     } finally { await h.shutdown(); }
   });
 
