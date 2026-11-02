@@ -4,11 +4,13 @@ An OpenUI Lang extension for **Pi 1.4+**, using `@openuidev/lang-core` 1.0.2 and
 
 ## See it in Pi
 
-[![Pi OpenUI trip-budget explorer: reactive inputs, Hide and Restore](https://raw.githubusercontent.com/FireTheDevil/pi-openui/e0d5098221d2237bbc549641803704f9b8b271d6/media/openui-demo-preview.gif)](https://raw.githubusercontent.com/FireTheDevil/pi-openui/e0d5098221d2237bbc549641803704f9b8b271d6/media/openui-demo.mp4)
+[![Six interactive Pi responses: code, failures, comparisons, scenarios, walkthroughs and planning](https://raw.githubusercontent.com/FireTheDevil/pi-openui/6041f69177f5f8c68dbb43616d8dc27c05fa09e9/media/openui-demo-preview.gif)](https://raw.githubusercontent.com/FireTheDevil/pi-openui/6041f69177f5f8c68dbb43616d8dc27c05fa09e9/media/openui-demo.mp4)
 
-[Download the full video (MP4, 34 seconds)](https://raw.githubusercontent.com/FireTheDevil/pi-openui/e0d5098221d2237bbc549641803704f9b8b271d6/media/openui-demo.mp4) · [Demo source and recording notes](https://github.com/FireTheDevil/pi-openui/blob/e0d5098221d2237bbc549641803704f9b8b271d6/media/README.md)
+[Download the full video (MP4, 83 seconds)](https://raw.githubusercontent.com/FireTheDevil/pi-openui/6041f69177f5f8c68dbb43616d8dc27c05fa09e9/media/openui-demo.mp4) · [Six example sources and recording notes](https://github.com/FireTheDevil/pi-openui/blob/6041f69177f5f8c68dbb43616d8dc27c05fa09e9/media/README.md)
 
-Adjust a budget, browse tabs, expand the widget, then hide it to keep chatting and restore it with the edits intact. Recorded in actual Pi using a model-authored OpenUI document and deterministic provider replay; example prices are illustrative.
+Explore code and failure diagnoses, compare laptop trade-offs, simulate heating costs, step through a request, then submit a weekend plan that shapes Pi's next response. Six scenes combine 22 components; the heating explorer also shows Hide and Restore with edits intact.
+
+Recorded in actual Pi using model-authored OpenUI documents and deterministic provider replay, without external LLM calls. Example data is illustrative. The 15-second preview samples every scene.
 
 ## Project status
 
