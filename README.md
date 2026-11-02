@@ -2,6 +2,14 @@
 
 An OpenUI Lang extension for **Pi 1.4+**, using `@openuidev/lang-core` 1.0.2 and Pi's host-provided `@earendil-works/pi-tui`. No React, browser, webview, or separate terminal loop.
 
+## See it in Pi
+
+[![Pi OpenUI trip-budget explorer: reactive inputs, Hide and Restore](https://raw.githubusercontent.com/FireTheDevil/pi-openui/e0d5098221d2237bbc549641803704f9b8b271d6/media/openui-demo-preview.gif)](https://raw.githubusercontent.com/FireTheDevil/pi-openui/e0d5098221d2237bbc549641803704f9b8b271d6/media/openui-demo.mp4)
+
+[Watch the 34-second video](https://raw.githubusercontent.com/FireTheDevil/pi-openui/e0d5098221d2237bbc549641803704f9b8b271d6/media/openui-demo.mp4) · [Demo source and recording notes](https://github.com/FireTheDevil/pi-openui/blob/e0d5098221d2237bbc549641803704f9b8b271d6/media/README.md)
+
+Adjust a budget, browse tabs, expand the widget, then hide it to keep chatting and restore it with the edits intact. Recorded in actual Pi using a model-authored OpenUI document and deterministic provider replay; example prices are illustrative.
+
 ## Project status
 
 This version is **fully vibe coded so far**: its implementation was generated with AI assistance. Automated checks and local testing do not guarantee correctness; review it for your use case and report issues on [GitHub](https://github.com/FireTheDevil/pi-openui/issues).
