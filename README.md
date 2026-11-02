@@ -2,7 +2,33 @@
 
 An OpenUI Lang extension for **Pi 1.4+**, using `@openuidev/lang-core` 1.0.2 and Pi's host-provided `@earendil-works/pi-tui`. No React, browser, webview, or separate terminal loop.
 
-## Run
+## Project status
+
+This version is **fully vibe coded so far**: its implementation was generated with AI assistance. Automated checks and local testing do not guarantee correctness; review it for your use case and report issues on [GitHub](https://github.com/FireTheDevil/pi-openui/issues).
+
+Tested on **Pi 1.4.0 and 1.5.0**: the automated and CLI checks in the [validation history](docs/validation-history.md) cover 1.4.0; local interactive testing also covers 1.5.0. Peer dependencies accept Pi 1.4+, but later versions have not yet been verified.
+
+See the [versioning policy](docs/versioning.md) for future release conventions and compatibility expectations.
+
+## Install
+
+Requires Node.js 22.19+ and Pi with the `@earendil-works` package namespace (tested on Node 24).
+
+Once published to npm, install the extension and bundled skill with:
+
+```sh
+pi install npm:pi-openui-tui
+```
+
+Restart Pi or run `/reload` in an existing session, then try `/openui-demo --local`. Use `/openui-demo` for an answer-collecting form.
+
+Until the npm release is available, install from [GitHub](https://github.com/FireTheDevil/pi-openui):
+
+```sh
+pi install git:github.com/FireTheDevil/pi-openui
+```
+
+## Run from source
 
 Requires Node.js 22.19+ and Pi with the `@earendil-works` package namespace (tested on Node 24).
 
@@ -22,8 +48,6 @@ Run `/openui-demo --local` for the hosting-cost explorer or `/openui-demo --loca
 Run `/openui-demo --catalog` to explore all **25 components** across Forms, Layout, Display and Advanced pages. Try the calendar, tree, multiline editor, workflow buttons and typed fields. Complete the required fields, then submit the result to Pi. See the [component reference](docs/components.md) and [actual Pi screenshots](docs/catalog-demo.md). This demo also accepts `--stream`.
 
 To persist installation, run `pi install /absolute/path/to/pi-openui-tui`. The package manifest registers the extension and its bundled `openui` skill. Pi supplies its own TUI at runtime; development dependencies are only for local checks.
-
-From GitHub, install with `pi install git:github.com/FireTheDevil/pi-openui`.
 
 To test this branch before it is merged:
 
@@ -194,12 +218,4 @@ npm test
 
 `src/catalog.ts` defines the Zod component specifications and generated model prompt. `src/model.ts` owns parsing, evaluation, typed state, validation and action dispatch. `src/view.ts` composes layouts and routes focus and pointer events; `src/controls.ts`, `src/displays.ts` and `src/presentation.ts` implement widgets, content and theme handling. `src/inline-document.ts` renders persistent display-only documents. `src/local-widgets.ts` manages persistent local widgets and their focus/lifecycle; `src/local-policy.ts` rejects nonlocal actions; `src/local-demo.ts` supplies the hosting explorer and tabbed explanation. `src/summary.ts` renders receipts; `src/code-summary.ts` persists native code-mode content/receipts and adapts its transcript display. `src/conversion.ts` supplies optional blocking-call metadata through the conversion package's public extension-tool protocol. `src/index.ts` owns Pi registration and view lifecycle. Automated tests exercise real lang-core and Pi widgets, hidden-page validation, actions, malformed/streaming input, resizing, receipt data preservation, session branches, skill discovery, Pi's actual extension loader, its fullscreen mouse decoder, and native codemode's QuickJS worker, using simulated host/terminal boundaries.
 
-For v0.7.0, all 236 core tests and type checking passed. Local-widget tests cover immediate mounting, reactive calculations, keyboard/mouse focus, independent state, disposal and replay. All 32 optional runtime compatibility tests passed across conversion Code/Deno/JavaScript/TypeScript. Seven actual CLI configurations passed the local-widget scenario, including regular/fullscreen hosts, a light-theme session-resume check and Shift+F6 cycling. See the [local-widget validation matrix and actual notebook captures](docs/local-interaction.md#verification). These checks use a deterministic provider, not external model generation.
-
-The v0.6.1 baseline passed all 199 core tests and type checking. Six actual Pi 1.4.0 CLI configurations on Node 24 also passed: direct tools in regular/fullscreen host modes, native code `on`/`only`, and conversion 4.0.7 Code/Deno Notebook Mode. Escape from inline forms and Ctrl+C from fullscreen forms returned normal cancellation results, allowed caller/model continuation and left later UI calls usable without a restart. Rendering checks covered inline context, resizing, F2 expansion/collapse, submission, static displays and malformed input. The [inline presentation guide](docs/inline-ui.md#verified-cli-paths) gives the exact matrix and [cancellation screenshot](docs/inline-ui.md#actual-pi-captures).
-
-A separate session-reopen check verified persistent inline content. The current cancellation contract returns a normal result to the caller; it does not terminate the enclosing code or notebook execution.
-
-The v0.6.1 baseline of 28 optional compatibility tests passed against the actual conversion Code, Deno, JavaScript and TypeScript runtimes with a simulated terminal/session boundary. Cancellation checks verified ordinary returned results and exactly-once caller continuation, including after a yield budget expires and during `wait` on a previously yielded cell. Deno, JavaScript and TypeScript notebook variables and closures remained usable in later cells without a restart. Run `npm run test:compat` with the external package and isolated agent-directory variables described in the [adapter test instructions](docs/inline-ui.md#repeat-the-adapter-checks).
-
-Earlier catalog and receipt releases were also tested with all 25 components, keyboard/mouse editing, local actions, reset, streaming, typed results and cancellation in dark and light themes. All CLI runs used a local deterministic provider; external model providers have not been tested. The [catalog gallery](docs/catalog-demo.md) captures actual PTY output; recording and screenshot tooling are excluded from the repository and package.
+Validation includes core tests, runtime compatibility checks and actual Pi CLI sessions using a deterministic provider, not external model generation. See the [validation history](docs/validation-history.md) for release results, coverage limits and links to reproduction instructions.
