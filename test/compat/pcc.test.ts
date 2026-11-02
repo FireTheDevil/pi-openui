@@ -129,8 +129,8 @@ async function host(mode: Mode) {
       active = new AbortController();
       parentId = `pcc-parent-${++call}`;
       const opened = new Promise<void>(resolve => { notifyOpened = resolve; });
-      // Catch immediately: cancellation can reject the outer exec before the
-      // test resumes after sending the key.
+      // Capture external abort failures immediately; form cancellation should
+      // instead resolve through the ordinary result contract.
       const completed: Promise<{ value?: any; error?: unknown }> = tools.get("exec").execute(parentId, { code }, active.signal, onUpdate, ctx)
         .then((value: any) => ({ value }), (error: unknown) => ({ error }));
       return { opened, completed, parentId };
@@ -153,18 +153,6 @@ async function host(mode: Mode) {
       parentId = `pcc-wait-${++call}`;
       return tools.get("wait").execute(parentId, { cell_id: cellId, yield_time_ms: 1000 }, active.signal, onUpdate, ctx);
     },
-    async restartNotebook() {
-      active = new AbortController();
-      // TS stops its worker asynchronously after rejecting exec. Follow its
-      // explicit idle-state lifecycle instead of racing the worker teardown.
-      for (let attempt = 0; attempt < 100; attempt++) {
-        const status = await tools.get("notebook").execute(`pcc-status-${++call}`, { input: JSON.stringify({ action: "status" }) }, active.signal, undefined, ctx);
-        if (!status.details.activeCells?.length) break;
-        assert.notEqual(attempt, 99, "cancelled notebook worker must become idle");
-        await delay(20);
-      }
-      return tools.get("notebook").execute(`pcc-restart-${++call}`, { input: JSON.stringify({ action: "restart" }) }, active.signal, undefined, ctx);
-    },
     async shutdown() {
       await emit("session_shutdown", {});
       await registration.shutdown();
@@ -173,39 +161,79 @@ async function host(mode: Mode) {
   };
 }
 
+/** Collect ordinary yielded output without imposing cancellation on the caller. */
+async function complete(h: Awaited<ReturnType<typeof host>>, done: { value?: any; error?: unknown }): Promise<any> {
+  assert.equal(done.error, undefined, `the enclosing cell must return normally: ${String(done.error)}`);
+  let result = done.value;
+  const content = [...result.content];
+  for (let attempt = 0; result.details?.status === "yielded"; attempt++) {
+    assert.ok(attempt < 4, "small test cells must finish within four observations");
+    result = await h.wait(result.details.cellId);
+    content.push(...result.content);
+  }
+  assert.notEqual(result.isError, true);
+  assert.equal(result.details?.status, "result");
+  assert.equal(result.details?.scriptError, undefined);
+  return { ...result, content };
+}
+function assertCancellation(h: Awaited<ReturnType<typeof host>>): void {
+  assert.equal(h.abortCalls, 0, "dismissing a form must not abort Pi or its notebook kernel");
+  assert.equal(h.closed, 1);
+  const result = h.results.find(item => item.name === "show_ui").result;
+  assert.notEqual(result.isError, true);
+  assert.deepEqual(result.structuredContent, { status: "cancelled" });
+  assert.deepEqual(JSON.parse(result.content[0].text), { status: "cancelled" });
+  assert.equal(result.details.openuiReceipt.status, "cancelled");
+  assert.deepEqual(result.details.openuiReceipt.fields, [], "cancellation must not fabricate submitted choices");
+}
+async function seedNotebook(h: Awaited<ReturnType<typeof host>>, mode: Mode): Promise<void> {
+  if (mode === "code") return;
+  await complete(h, await h.start('let preservedValue = 41; const preservedReader = () => preservedValue; text(preservedReader());').completed);
+}
+async function assertNotebookRetained(h: Awaited<ReturnType<typeof host>>, mode: Mode): Promise<void> {
+  const code = mode === "code" ? 'text("FRESH_CELL");' :
+    'text({value:preservedValue,closure:preservedReader()}); preservedValue += 1; text({after:preservedReader()});';
+  const result = await complete(h, await h.start(code).completed);
+  const text = result.content.filter((item: any) => item.type === "text").map((item: any) => item.text).join("\n");
+  if (mode === "code") assert.match(text, /FRESH_CELL/);
+  else {
+    assert.match(text, /"value"\s*:\s*42/);
+    assert.match(text, /"closure"\s*:\s*42/);
+    assert.match(text, /"after"\s*:\s*43/);
+  }
+  assert.equal(h.abortCalls, 0, "the same live notebook continues without any restart request");
+}
+
 const modes = (process.env.OPENUI_PCC_MODES?.split(",") ?? ["code", "notebook", "js", "ts"]) as Mode[];
 assert.ok(modes.length && modes.every(mode => ["code", "notebook", "ts", "js"].includes(mode)), "OPENUI_PCC_MODES must contain code, notebook, ts or js");
 for (const mode of modes) {
-  test(`PCC ${mode}: cancellation remains effective after the cell's yield timeout`, { timeout: 45_000 }, async () => {
+  test(`PCC ${mode}: cancelling after the yield timeout returns normally and preserves notebook state`, { timeout: 45_000 }, async () => {
     const h = await host(mode);
     try {
-      const pending = h.start(`// @exec: {"yield_time_ms":1000}\nawait tools.show_ui({source:${JSON.stringify(SOURCE)},presentation:"inline"}); text("MUST_NOT_PRINT_AFTER_YIELD"); await tools.marker({text:"MUST_NOT_RUN_AFTER_YIELD"});`);
+      await seedNotebook(h, mode);
+      const before = mode === "code" ? "" : "preservedValue = 42;";
+      const pending = h.start(`// @exec: {"yield_time_ms":1000}\n${before} const cancelled = await tools.show_ui({source:${JSON.stringify(SOURCE)},presentation:"inline"}); text(cancelled); if (cancelled.status === "submitted") await tools.marker({text:"CHOICE_DEPENDENT_WORK"}); await tools.marker({text:"AFTER_YIELD_CANCEL"});`);
       await Promise.race([pending.opened, pending.completed.then(done => { throw new Error(`Cell finished before UI opened: ${JSON.stringify(done)}`); })]);
       await delay(1200);
       const cellId = h.lastCellId;
       assert.ok(cellId);
       h.key("\x1b");
-      const done = await pending.completed;
-      if (!done.error && done.value?.details?.status === "yielded") {
-        const observed = await h.wait(done.value.details.cellId);
-        assert.doesNotMatch(JSON.stringify(observed.content), /MUST_NOT_PRINT_AFTER_YIELD/);
-      }
-      assert.ok(done.error, `cancel must abort an enclosing cell after its yield timeout: ${JSON.stringify(done)}`);
-      const observed = await h.wait(cellId).catch(error => ({ error: String(error) }));
-      assert.doesNotMatch(JSON.stringify(observed), /MUST_NOT_PRINT_AFTER_YIELD/);
-      assert.deepEqual(h.markers, []);
-      if (mode === "ts" || mode === "js") await h.restartNotebook();
-      const fresh = await h.start('text("FRESH_CELL_AFTER_YIELD_CANCEL");').completed;
-      assert.equal(fresh.error, undefined);
-      assert.match(JSON.stringify(fresh.value.content), /FRESH_CELL_AFTER_YIELD_CANCEL/);
-      assert.deepEqual(h.markers, []);
+      const result = await complete(h, await pending.completed);
+      assert.match(JSON.stringify(result.content), /cancelled/);
+      assert.deepEqual(h.markers, ["AFTER_YIELD_CANCEL"], "the caller handles cancellation and may continue unrelated work");
+      assertCancellation(h);
+      await h.wait(cellId).catch(() => undefined);
+      assert.deepEqual(h.markers, ["AFTER_YIELD_CANCEL"], "re-observing the completed cell cannot duplicate continuation");
+      await assertNotebookRetained(h, mode);
     } finally { await h.shutdown(); }
   });
-  test(`PCC ${mode}: a previously yielded cell resumes UI in wait and cancels without continuation`, { timeout: 45_000 }, async () => {
+  test(`PCC ${mode}: cancellation inside wait returns normally from a previously yielded cell`, { timeout: 45_000 }, async () => {
     const h = await host(mode);
     try {
+      await seedNotebook(h, mode);
+      const before = mode === "code" ? "" : "preservedValue = 42;";
       const pause = mode === "js" ? "await yield_control();" : "await new Promise(resolve => setTimeout(resolve,200));";
-      const initial = h.start(`// @exec: {"yield_time_ms":10}\n${pause} await tools.show_ui({source:${JSON.stringify(SOURCE)}}); text("MUST_NOT_PRINT_AFTER_WAIT"); await tools.marker({text:"MUST_NOT_RUN_AFTER_WAIT"});`);
+      const initial = h.start(`// @exec: {"yield_time_ms":10}\n${before} ${pause} const cancelled = await tools.show_ui({source:${JSON.stringify(SOURCE)}}); text(cancelled); if (cancelled.status === "submitted") await tools.marker({text:"CHOICE_DEPENDENT_WORK"}); await tools.marker({text:"AFTER_WAIT_CANCEL"});`);
       const yielded = await initial.completed;
       assert.equal(yielded.error, undefined);
       assert.equal(yielded.value.details.status, "yielded");
@@ -215,15 +243,13 @@ for (const mode of modes) {
       await Promise.race([pending.opened, pending.completed.then(done => { throw new Error(`Wait finished before UI opened: ${JSON.stringify(done)}`); })]);
       await delay(1200);
       h.key("\x1b");
-      assert.ok((await pending.completed).error);
-      const observed = await h.wait(cellId).catch(error => ({ error: String(error) }));
-      assert.doesNotMatch(JSON.stringify(observed), /MUST_NOT_PRINT_AFTER_WAIT/);
-      assert.deepEqual(h.markers, []);
-      if (mode === "ts" || mode === "js") await h.restartNotebook();
-      const fresh = await h.start('text("FRESH_CELL_AFTER_WAIT_CANCEL");').completed;
-      assert.equal(fresh.error, undefined);
-      assert.match(JSON.stringify(fresh.value.content), /FRESH_CELL_AFTER_WAIT_CANCEL/);
-      assert.deepEqual(h.markers, []);
+      const result = await complete(h, await pending.completed);
+      assert.match(JSON.stringify(result.content), /cancelled/);
+      assert.deepEqual(h.markers, ["AFTER_WAIT_CANCEL"]);
+      assertCancellation(h);
+      await h.wait(cellId).catch(() => undefined);
+      assert.deepEqual(h.markers, ["AFTER_WAIT_CANCEL"]);
+      await assertNotebookRetained(h, mode);
     } finally { await h.shutdown(); }
   });
   test(`PCC ${mode}: passive documents return immediately and persist inline`, { timeout: 45_000 }, async () => {
@@ -272,29 +298,21 @@ for (const mode of modes) {
   }
 
   for (const [name, key] of [["Escape", "\x1b"], ["Ctrl+C", "\x03"]] as const) {
-    test(`PCC ${mode}: ${name} stops the cell before its next statement and recovers through the host's lifecycle`, { timeout: 45_000 }, async () => {
+    test(`PCC ${mode}: ${name} returns cancelled and leaves the cell and notebook usable`, { timeout: 45_000 }, async () => {
       const h = await host(mode);
       try {
-        const pending = h.start(`await tools.show_ui({source:${JSON.stringify(SOURCE)},presentation:"fullscreen"}); await tools.marker({text:"MUST_NOT_RUN"}); text("MUST_NOT_PRINT");`);
+        await seedNotebook(h, mode);
+        const before = mode === "code" ? "" : "preservedValue = 42;";
+        const pending = h.start(`${before} const cancelled = await tools.show_ui({source:${JSON.stringify(SOURCE)},presentation:"fullscreen"}); text(cancelled); if (cancelled.status === "submitted") await tools.marker({text:"CHOICE_DEPENDENT_WORK"}); await tools.marker({text:"CANCELLATION_HANDLED"}); text("CALLER_CONTINUES");`);
         await Promise.race([pending.opened, pending.completed.then(done => { throw new Error(`Cell finished before UI opened: ${JSON.stringify(done)}`); })]);
         h.key(key);
-        const done = await pending.completed;
-        assert.ok(done.error, "cancellation must reject/abort the enclosing PCC cell");
-        assert.equal(h.abortCalls, 1);
-        assert.equal(h.closed, 1);
-        assert.deepEqual(h.markers, [], "the statement after awaited show_ui must not execute");
-        assert.equal(h.results.find(item => item.name === "show_ui").result.structuredContent.status, "cancelled");
-        const next = h.start('text("RECOVERED_AFTER_CANCEL");');
-        let recovered = await next.completed;
-        if (mode === "ts" || mode === "js") {
-          assert.match(String(recovered.error ?? JSON.stringify(recovered.value)), /notebook restart/,
-            "PCC intentionally requires a checkpoint restart after terminating TS/JS kernels");
-          await h.restartNotebook();
-          recovered = await h.start('text("RECOVERED_AFTER_CANCEL");').completed;
-        }
-        assert.equal(recovered.error, undefined);
-        assert.match(JSON.stringify(recovered.value.content), /RECOVERED_AFTER_CANCEL/);
-        assert.deepEqual(h.markers, [], "a background notebook must not resume cancelled work later");
+        const result = await complete(h, await pending.completed);
+        assert.match(JSON.stringify(result.content), /cancelled/);
+        assert.match(JSON.stringify(result.content), /CALLER_CONTINUES/);
+        assertCancellation(h);
+        assert.deepEqual(h.markers, ["CANCELLATION_HANDLED"], "caller logic, not UI dismissal, controls continuation");
+        await assertNotebookRetained(h, mode);
+        assert.deepEqual(h.markers, ["CANCELLATION_HANDLED"]);
       } finally { await h.shutdown(); }
     });
   }

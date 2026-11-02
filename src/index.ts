@@ -73,16 +73,13 @@ export default function openuiExtension(pi: ExtensionAPI): void {
     return panel;
   }
 
-  function finish(panel: Panel, result: Outcome, cancelContext?: ExtensionContext): void {
+  function finish(panel: Panel, result: Outcome): void {
     if (panel.result) return;
     panel.result = result;
     panel.receipt = createReceipt(result, panel.model, panel.summary);
     if (panel.timer) clearInterval(panel.timer);
     for (const remove of panel.removeAbortListeners.splice(0)) remove();
     if (visible === panel) visible = undefined;
-    // Abort synchronously, before resolving custom()/show_ui. A notebook or
-    // code-mode cell must not resume into its next statement after Escape.
-    if (cancelContext) cancelContext.abort();
     // Also cover a host failure or cancellation before custom() mounts the view.
     panel.view?.dispose();
     panel.close?.(result);
@@ -122,7 +119,7 @@ export default function openuiExtension(pi: ExtensionAPI): void {
                 panel.surface = panel.surface === "inline" ? "fullscreen" : "inline";
                 panel.close?.(SWITCH_SURFACE);
               },
-              onDone: result => finish(panel, result, result.status === "cancelled" ? ctx : undefined),
+              onDone: result => finish(panel, result),
             });
             panel.view.setSurface(panel.surface);
             const view = panel.view;
@@ -208,14 +205,14 @@ export default function openuiExtension(pi: ExtensionAPI): void {
   registerToolWithConversion(pi, {
     name: "show_ui",
     label: "OpenUI",
-    description: "Render OpenUI Lang inline in Pi's terminal conversation. Display-only documents return immediately; choices and forms wait inline for user input. Use presentation: fullscreen for explicit expanded inspection; F2 toggles interactive forms. Local Set/Reset actions update controls, ToAssistant submits current values. Escape or Ctrl+C cancels the active agent/code/notebook run. Requires interactive Pi TUI mode.",
+    description: "Render OpenUI Lang inline in Pi's terminal conversation. Display-only documents return immediately; choices and forms wait inline for user input. Use presentation: fullscreen for explicit expanded inspection; F2 toggles interactive forms. Local Set/Reset actions update controls, ToAssistant submits current values. Escape or Ctrl+C closes the form and returns status: cancelled as a normal result. Requires interactive Pi TUI mode.",
     promptSnippet: "Render useful content inline, or collect structured input inline with optional fullscreen expansion.",
     promptGuidelines: [
       "Use the OpenUI component library in the openui prompt section. Submit a complete program in source, with root = Stack([...]).",
       "Use UI proactively when interaction helps; keep simple answers and requested plain-text comparisons in prose. When available, read the openui skill for interaction patterns and component selection. Ground displayed facts in context or tools and bind exploratory controls to visible local calculations.",
       "Optional summary.title and summary.fields choose the receipt title and field names; Pi handles theme and status. Continue from the actual submitted values, respect cancellation, and use error diagnostics to repair invalid documents. A submitted form means user input was received, not that the requested work was executed.",
       "Prefer presentation: auto (the default) or inline for ordinary content and forms. Display-only documents return status: displayed without acknowledgement; do not add a Continue button just to show content. Use fullscreen only when explicitly requested or expanded inspection helps. No chart or Mermaid renderer is provided by this catalog.",
-      "In code/notebook execution, await the host's show_ui callable and inspect status (submitted, displayed, cancelled or error). Interactive forms wait for the user; avoid short timeouts and concurrent panels. Escape/Ctrl+C aborts the active run, so code after the await must not be relied on for cancellation cleanup. Include submitted data in output when the agent needs it.",
+      "In code/notebook execution, await the host's show_ui callable and inspect status (submitted, displayed, cancelled or error). Interactive forms wait for the user; avoid short timeouts and concurrent panels. Cancellation resolves normally and the caller continues; only use values when status is submitted, handle cancelled without treating defaults as user choices, and do not automatically reopen the form. Include relevant results in output when the agent needs them.",
     ],
     parameters: Type.Object({
       source: Type.String({ minLength: 1, maxLength: MAX_SOURCE_LENGTH, description: "Complete OpenUI Lang program, without Markdown fences." }),

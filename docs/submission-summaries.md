@@ -36,6 +36,6 @@ The bundled [openui skill](../skills/openui/SKILL.md) teaches component selectio
 
 ## Verification
 
-For v0.5.0, all four actual Pi 1.4.0 fullscreen runs passed: dark and light themes, each with direct tools and native code-only mode. Checks covered readable field/option labels, full typed provider results, expansion, narrow resizing, cancellation, malformed input, demo delivery, skill discovery, mixed script output, and reopening a session with its receipt intact. Native code-only mode exposed only `codemode` to the provider while retaining nested `show_ui` and `read` access. The newer inline and abort-before-continuation checks are documented separately in [inline presentation](inline-ui.md).
+For v0.5.0, all four actual Pi 1.4.0 fullscreen runs passed: dark and light themes, each with direct tools and native code-only mode. Checks covered readable field/option labels, full typed provider results, expansion, narrow resizing, cancellation, malformed input, demo delivery, skill discovery, mixed script output, and reopening a session with its receipt intact. Native code-only mode exposed only `codemode` to the provider while retaining nested `show_ui` and `read` access. The newer inline rendering and ordinary cancellation-result checks are documented separately in [inline presentation](inline-ui.md).
 
 The captures replay unmodified PTY output. A deterministic local provider verified the received data; no external model provider was used. Browser tooling was used only by the external screenshot harness and is not a dependency of the extension.

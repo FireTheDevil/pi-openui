@@ -184,20 +184,33 @@ test("a user's F2 preview choice takes precedence over the final presentation ar
   assert.equal(h.aborts, 0);
 });
 
-test("user cancellation aborts the active run before the waiting caller resumes", async () => {
-  const h = host();
-  const pending = h.execute('root = Stack([Button("Send", "send")]);');
-  let resumed = false;
-  const checked = pending.then((result: {structuredContent: {status:string}}) => {
-    resumed = true;
-    assert.equal(h.aborts, 1);
-    assert.equal(result.structuredContent.status, "cancelled");
-  });
-  h.key("\x03");
-  assert.equal(h.aborts, 1);
-  assert.equal(resumed, false);
-  await checked;
-});
+for (const presentation of ["inline", "fullscreen"] as const) {
+  for (const [name, key] of [["Escape", "\x1b"], ["Ctrl+C", "\x03"]]) {
+    test(`${name} in ${presentation} returns a normal cancellation without aborting the caller`, async () => {
+      const h = host();
+      const run = new AbortController();
+      h.ctx.signal = run.signal;
+      const pending = h.execute('root = Stack([Input("note", "Note", "default"), Button("Send", "send")]);', "cancel", run.signal, presentation);
+      h.key(" edited");
+      h.key(key);
+      const result = await pending;
+      assert.deepEqual(result.structuredContent, { status: "cancelled" });
+      assert.deepEqual(JSON.parse(result.content[0].text), { status: "cancelled" });
+      assert.equal(result.isError, undefined);
+      assert.deepEqual(result.details.openuiReceipt.fields, [], "drafts and defaults are not submitted choices");
+      assert.equal(h.closes, 1);
+      assert.equal(h.aborts, 0);
+      assert.equal(run.signal.aborted, false);
+
+      // The same active caller may continue with other work or another explicit UI.
+      const next = h.execute('root = Stack([Button("Next", "next")]);', "next", run.signal, presentation);
+      h.key("\r");
+      assert.equal((await next).structuredContent.action, "next");
+      assert.equal(h.closes, 2);
+      assert.equal(h.aborts, 0);
+    });
+  }
+}
 
 test("invalid source returns actionable diagnostics without opening a panel", async () => {
   const h = host();
@@ -229,7 +242,7 @@ test("AbortSignal and Escape cancel the panel exactly once", async () => {
   h.key("\x1b");
   assert.equal((await next).details.status, "cancelled");
   assert.equal(h.closes, 2);
-  assert.equal(h.aborts, 1, "only user cancellation aborts the active run");
+  assert.equal(h.aborts, 0, "closing a form never requests a host abort");
 });
 
 test("partial arguments reuse one custom UI and cannot submit before execute", async () => {

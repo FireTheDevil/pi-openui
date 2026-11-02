@@ -30,4 +30,4 @@ After reset, the test enters a new note, increments the counter, marks the plan 
 
 ![Action delivered to the active Pi session](screenshots/actions-submitted.png)
 
-Streaming remains read-only until completion. Unsupported actions and invalid resulting state produce an inline error; failed plans leave the original state intact. Escape cancels without submitting and aborts an active run; it does not let a waiting script continue with default choices.
+Streaming remains read-only until completion. Unsupported actions and invalid resulting state produce an inline error; failed plans leave the original state intact. Escape closes the form and returns `status: "cancelled"` without submitting choices. The waiting caller resumes and should check that status before using answers.

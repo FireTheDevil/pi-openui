@@ -34,8 +34,8 @@ export function registerToolWithConversion<TParams extends TSchema, TDetails, TS
     executionPipeline: "pi" as const,
     executionMode: tool.executionMode,
     // A normal Pi-tool bridge drains pending calls after the runtime has already
-    // yielded. Blocking keeps the runtime's observer and abort handler attached
-    // throughout user interaction, including exec/wait yield deadlines.
+    // yielded. Blocking keeps the result attached throughout user interaction,
+    // including exec/wait yield deadlines, until submission or cancellation.
     blocking: true,
     propagateTermination: true,
     inputSchema: tool.parameters,
@@ -50,11 +50,6 @@ export function registerToolWithConversion<TParams extends TSchema, TDetails, TS
       context.captureResult?.(result);
       signal.throwIfAborted();
       const structured = result.structuredContent;
-      if (structured && typeof structured === "object" && "status" in structured && structured.status === "cancelled") {
-        const error = new Error("OpenUI interaction cancelled");
-        error.name = "AbortError";
-        throw error;
-      }
       // Preserve the same declared-output contract as Pi and PCC's standard
       // bridge. Structured diagnostics are returned for agent repair.
       if (tool.outputSchema && structured !== undefined) return structured;

@@ -134,29 +134,36 @@ for (const mode of ["on", "only"] as const) {
 
 for (const mode of ["on", "only"] as const) {
   for (const [label, key] of [["Escape", "\x1b"], ["Ctrl+C", "\x03"]]) {
-    test(`native QuickJS (${mode}) ${label} aborts the run before subsequent code or tools, then recovers`, { timeout: 15_000 }, async () => {
+    test(`native QuickJS (${mode}) ${label} returns cancellation normally and lets the caller continue`, { timeout: 15_000 }, async () => {
       const h = host(mode);
-      // A catch/finally must not turn cancellation into consent to keep running.
-      const pending = h.execute(`try { await tools.show_ui({source: ${JSON.stringify(SOURCE)}}); } catch { text("CAUGHT_AND_CONTINUED"); } finally { text("FINALLY_RAN"); } await tools.sentinel({}); text("AFTER_UI");`);
+      // The caller can skip choice-dependent work and still clean up or continue
+      // unrelated work. Dismissing the form is not an execution interruption.
+      const pending = h.execute(`try { const result = await tools.show_ui({source: ${JSON.stringify(SOURCE)}}); text(result); if (result.status === "submitted") { await tools.sentinel({}); text("SUBMITTED_ONLY"); } else if (result.status === "cancelled") { text("FORM_DISMISSED"); } } catch { text("UNEXPECTED_EXCEPTION"); } finally { text("CLEANUP_RAN"); } await tools.sentinel({}); text("CALLER_CONTINUED");`);
       try {
         await h.opened;
         h.key(key);
         const result = await pending;
         const output = result.content.map((item: any) => item.text ?? "").join("\n");
-        assert.equal(result.isError, true);
-        assert.match(output, /abort/i);
-        assert.doesNotMatch(output, /CAUGHT_AND_CONTINUED|FINALLY_RAN|AFTER_UI/);
-        assert.equal(h.sideEffects, 0);
-        assert.equal(h.aborts, 1);
+        assert.equal(result.isError, undefined);
+        assert.match(output, /"status":"cancelled"/);
+        assert.match(output, /FORM_DISMISSED/);
+        assert.match(output, /CLEANUP_RAN/);
+        assert.match(output, /CALLER_CONTINUED/);
+        assert.doesNotMatch(output, /UNEXPECTED_EXCEPTION|SUBMITTED_ONLY/);
+        assert.equal(h.sideEffects, 1, "only the caller's unconditional continuation should execute");
+        assert.equal(h.aborts, 0);
+        assert.equal(h.ctx.signal?.aborted, false);
         assert.equal(h.closed, 1);
         const nested = h.nestedResults.find(item => item.name === "show_ui");
         assert.deepEqual(nested?.result.structuredContent, { status: "cancelled" });
+        assert.equal(nested.result.isError, undefined);
         assert.equal(nested.result.details.openuiReceipt.status, "cancelled");
+        assert.deepEqual(nested.result.details.openuiReceipt.fields, [], "cancellation must not submit default field values");
 
         const next = await h.execute('await tools.sentinel({}); text("NEW_USER_REQUEST");');
         assert.equal(next.isError, undefined);
         assert.match(next.content.map((item: any) => item.text ?? "").join("\n"), /NEW_USER_REQUEST/);
-        assert.equal(h.sideEffects, 1, "a subsequent user run receives a fresh abort signal");
+        assert.equal(h.sideEffects, 2, "a subsequent run still executes normally");
       } finally { h.shutdown(); }
     });
   }

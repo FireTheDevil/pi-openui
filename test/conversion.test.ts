@@ -83,7 +83,7 @@ test("Pi-only hosts register the unchanged tool without a conversion dependency"
 test("conversion invokes Pi admission and preserves typed outcomes and structured diagnostics", async () => {
   const h = fixture(); registerToolWithConversion(h.pi, tool);
   const [adapted] = h.snapshot();
-  for (const data of [{ status: "submitted", values: { accepted: true, count: 3 } }, { status: "displayed" }, { status: "error", error: "Unknown component" }]) {
+  for (const data of [{ status: "submitted", values: { accepted: true, count: 3 } }, { status: "cancelled" }, { status: "displayed" }, { status: "error", error: "Unknown component" }]) {
     const captured: unknown[] = [];
     const signal = new AbortController().signal;
     const input = { source: "root = Text(\"hello\");" };
@@ -101,13 +101,15 @@ test("conversion invokes Pi admission and preserves typed outcomes and structure
   }
 });
 
-test("conversion cancellation never resolves into the cell and aborted calls cannot bypass admission", async () => {
+test("conversion returns form cancellation normally while external aborts still reject", async () => {
   const h = fixture(); registerToolWithConversion(h.pi, tool);
   const [adapted] = h.snapshot();
   let calls = 0;
   const cancelled = { content: [{ type: "text", text: '{"status":"cancelled"}' }], structuredContent: { status: "cancelled" } };
   const context = { executeTool: async () => { calls++; return { result: cancelled, isError: false }; } };
-  await assert.rejects(adapted.invoke({}, context, new AbortController().signal), { name: "AbortError" });
+  const signal = new AbortController().signal;
+  assert.equal(await adapted.invoke({}, context, signal), cancelled.structuredContent);
+  assert.equal(signal.aborted, false);
   const aborted = new AbortController(); aborted.abort();
   await assert.rejects(adapted.invoke({}, context, aborted.signal), { name: "AbortError" });
   assert.equal(calls, 1);

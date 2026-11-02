@@ -18,7 +18,7 @@ Start with the user's goal and available context. Identify what the user should 
 ## Choose inline or expanded presentation
 
 - Use `presentation: "auto"` (the default) or `"inline"` for ordinary choices, small forms, comparisons, explanatory tables and code excerpts. Keep useful conversation context visible. Do not request fullscreen for every call.
-- Use `presentation: "fullscreen"` when the user asks for an expanded view or the task needs sustained inspection of dense content. Users can press F2 to expand or collapse an open interactive view while retaining their edits and focus. A fullscreen display-only document closes on Enter and remains inline; Escape cancels the active run.
+- Use `presentation: "fullscreen"` when the user asks for an expanded view or the task needs sustained inspection of dense content. Users can press F2 to expand or collapse an open interactive view while retaining their edits and focus. A fullscreen display-only document closes on Enter and remains inline; Escape closes it with a cancelled result.
 - For a display with no decision to collect, use Text, Markdown, Table, List, CodeBlock or other display components without a Button or field. An inline display returns `status: "displayed"`; it is neither a user choice nor approval. Use normal prose when it communicates the same information more simply.
 - The catalog still defines the available content. Requesting fullscreen does not add chart, Mermaid, flow-diagram or browser components. Use a supported textual representation or an appropriate artifact tool for those formats.
 
@@ -78,7 +78,7 @@ Before calling the tool, check that the document is complete, every control serv
 5. Keep the main action obvious. With several pages, put the final submit button outside the page group. Hidden fields retain their values and still validate; failed submission reveals an invalid enabled field.
 6. Design for keyboard use: Tab moves focus, arrows navigate, Space toggles choices, and Enter activates buttons. TextArea uses Enter for newlines and Ctrl+Enter to advance. F2 toggles inline/fullscreen presentation. Pi's fullscreen TUI supports mouse input on either presentation; its regular TUI mode remains usable by keyboard.
 
-Submit a complete OpenUI Lang document in `source`, without Markdown fences. Streaming previews are read-only until the final document is valid; do not rely on users editing an unfinished document. Open only one interactive view at a time. Escape and Ctrl+C cancel the view and abort the active run.
+Submit a complete OpenUI Lang document in `source`, without Markdown fences. Streaming previews are read-only until the final document is valid; do not rely on users editing an unfinished document. Open only one interactive view at a time. Escape and Ctrl+C close the view and return `status: "cancelled"` to the caller.
 
 ## Local actions and submission
 
@@ -87,7 +87,7 @@ Submit a complete OpenUI Lang document in `source`, without Markdown fences. Str
 - `@ToAssistant(message, context?)` submits the current typed values and closes the panel. If used in a plan, it must be the final step. A legacy string action identifier also submits.
 - All update targets must be declared variables. Query, Mutation, `@Run`, `@OpenUrl` and external tool execution are unsupported button actions.
 
-Check the result's `status`. On `submitted`, use the actual `values` for field answers and `context` for any supplied action payload; do not reconstruct answers from defaults or the receipt. On `displayed`, content was shown without collecting input; continue only work already authorized independently of that display. On `cancelled`, stop the flow. User cancellation aborts the active run before a waiting code or notebook cell resumes: do not catch it to continue downstream work or substitute default choices. On `error`, use the diagnostics to correct the specific problem instead of resending the same document. If a valid UI cannot be produced, explain the issue and use an appropriate conversational fallback. Do not turn cancellation into an automatic retry.
+Check the result's `status`. On `submitted`, use the actual `values` for field answers and `context` for any supplied action payload; do not reconstruct answers from defaults or the receipt. On `displayed`, content was shown without collecting input; continue only work already authorized independently of that display. On `cancelled`, the form was dismissed and supplied no choices. The awaiting code resumes normally, and the notebook stays running. Handle this result explicitly: skip work that requires the missing answer, continue any independently authorized work as appropriate, and do not substitute default choices or automatically reopen the form. On `error`, use the diagnostics to correct the specific problem instead of resending the same document. If a valid UI cannot be produced, explain the issue and use an appropriate conversational fallback. Do not turn cancellation into an automatic retry.
 
 Submission means the user supplied input. Continue the authorized task using that input, with a concise explanation of the next action when useful. The receipt already acknowledges the decision; avoid repeating its entire table or dumping JSON into the conversational reply. Do not claim that files changed, a deployment ran or another external action completed merely because the form was submitted.
 
@@ -179,20 +179,24 @@ root = Stack([
 
 ## Code and notebook execution
 
-When `show_ui` is callable through native `codemode`, await it. An interactive call stays pending while the user edits fields and runs local actions, then returns a submitted result. Display-only inline calls return immediately with `status: "displayed"`. User cancellation aborts the run, so code after the await must not be relied on for cleanup or a cancellation acknowledgement. Avoid short script deadlines and concurrent views.
+When `show_ui` is callable through native `codemode`, await it. An interactive call stays pending while the user edits fields and runs local actions, then returns a submitted result. Display-only inline calls return immediately with `status: "displayed"`. Cancelling the form resolves the same promise with `{status: "cancelled"}`. Code after the await can handle that result; no notebook restart is required. Avoid short script deadlines and concurrent views.
 
 ```js
 const result = await tools.show_ui({
   source: 'root = Stack([Select("depth", "Review depth", ["Focused", "Thorough"], "Focused"), Button("Send choice", @ToAssistant("Use this review depth"))]);',
   summary: { title: "Review depth", fields: ["depth"] }
 });
-text(result);
+if (result.status === "submitted") {
+  text({ status: result.status, depth: result.values.depth });
+} else {
+  text(result); // cancellation/display/diagnostics are ordinary outcomes
+}
 ```
 
 Only script output reaches the model after native code mode finishes. Output the result or the fields needed for the next step; retaining a value in a JavaScript variable alone does not return it to the model. The receipt changes terminal presentation while preserving the script's output data. Keep `show_ui` active alongside `codemode`; keep `read` or `bash` available for Pi's skill discovery and loading.
 
-`@howaboua/pi-codex-conversion` 4.0.7 exposes the same `await tools.show_ui(...)` call and structured result through its Code/Notebook tool bridge. Use the adapter's advertised enclosing execution tool; do not assume it is named `codemode`. Notebook bindings persist between cells, so avoid redeclaring an existing top-level `const`. Other adapters may expose a different namespace or envelope: follow their discovered API. Await the UI, inspect its status before using answers, and emit the relevant typed result for the model. A cancelled cell must not continue with another tool call or schedule background work that assumes a choice was made. Inline/fullscreen presentation and component semantics are the same whichever adapter invokes the tool.
+`@howaboua/pi-codex-conversion` 4.0.7 exposes the same `await tools.show_ui(...)` call and structured result through its Code/Notebook tool bridge. Use the adapter's advertised enclosing execution tool; do not assume it is named `codemode`. Notebook bindings persist between cells, so avoid redeclaring an existing top-level `const`. Other adapters may expose a different namespace or envelope: follow their discovered API. Await the UI, inspect its status before using answers, and emit the relevant typed result for the model. A cancelled form supplies no choices. Branch on its status before using values or calling tools that depend on a submitted answer. Inline/fullscreen presentation and component semantics are the same whichever adapter invokes the tool.
 
-The conversion integration keeps a pending `show_ui` attached to its enclosing cell even if the cell's yield budget elapses. Do not interpret elapsed yield time as a user response or launch another UI to replace the waiting one. Cancellation terminates the interaction rather than deferring its continuation to a later `wait` call.
+The conversion integration keeps a pending `show_ui` attached to its enclosing cell even if the cell's yield budget elapses. Do not interpret elapsed yield time as a user response or launch another UI to replace the waiting one. Both submission and cancellation finish the UI call and return their structured result to the waiting code.
 
-After cancellation, respect the adapter's kernel lifecycle. Conversion Code and Deno Notebook Mode accept a fresh call; its TypeScript/JavaScript notebook backends require an explicit top-level `notebook({input: '{"action":"restart"}'})` to restore the last durable checkpoint before a new cell. This is not a `tools.notebook` call inside the stopped cell. Do not restart or retry automatically as a continuation of the cancelled request.
+Form dismissal leaves the running cell and notebook state intact in conversion Code, Deno Notebook, JavaScript Notebook and TypeScript Notebook modes. Do not restart a notebook because a form returned `cancelled`. A separate host stop, timeout or session shutdown follows the host's normal cancellation lifecycle.
