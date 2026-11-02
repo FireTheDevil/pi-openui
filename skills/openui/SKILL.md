@@ -1,6 +1,6 @@
 ---
 name: openui
-description: Choose and build useful inline terminal displays and interactive interfaces with show_ui and OpenUI Lang. Use for structured decisions, comparing alternatives, exploring how inputs change outcomes, collecting related answers, or guiding a workflow, even when the user has not explicitly requested a UI. Covers presentation, components, grounded data, reactive state, actions, code/notebook execution and themed receipts.
+description: Choose static displays, nonblocking local exploration, or answer-collecting interfaces with show_ui and OpenUI Lang in Pi. Use for comparisons, interactive explanations, scenario exploration, related answers and workflows even without an explicit UI request. Covers mode selection, focus, components, grounded data, state, actions, code/notebook execution and receipts.
 ---
 
 # OpenUI in Pi
@@ -13,16 +13,24 @@ The active `openui` prompt section supplies the component schemas and language r
 
 Start with the user's goal and available context. Identify what the user should be able to choose, adjust, compare or inspect. Use a structured display when it improves reading, and controls when they make a meaningful decision or relationship easier to explore. Simple facts, short explanations, ordinary progress updates and already-authorized one-step edits usually need prose or the normal tools. A small static comparison can be a normal Markdown table; use an inline OpenUI display when its layout or formatting adds value. Respect a request for plain text.
 
-`show_ui` defaults to inline presentation. A document containing only display components renders in the conversation and returns immediately; a document with fields, page navigation or buttons takes keyboard focus in Pi's inline editor area until the user acts. Avoid acknowledgement buttons before routine work can continue. When the user needs an exported chart, document or other shareable artifact, create the requested artifact using the appropriate tools; terminal output is not an export format.
+`show_ui` defaults to inline presentation. Choose the interaction contract explicitly before composing the document:
+
+| User need | Tool arguments and behavior |
+| --- | --- |
+| Read information with no controls | A display-only document with default interaction renders in the conversation and returns `status: "displayed"`. |
+| Explore, calculate, navigate or expand explanations without sending an answer | Set `interaction: "local"` with `presentation: "auto"` or `"inline"`. The tool returns `status: "mounted"` plus `widgetId`; the widget remains interactive in the transcript while chat stays available. |
+| Supply an answer the agent needs for subsequent work | Use default interaction or `interaction: "collect"`. Controls open a focused form and wait for submission or cancellation. |
+
+Removing a Submit button does **not** make a default form nonblocking. Use local mode for optional exploration and collect mode only when the agent needs an answer. Avoid acknowledgement buttons before routine work can continue. For an exported chart, document or other shareable artifact, use the appropriate artifact tools; terminal output is not an export format.
 
 ## Choose inline or expanded presentation
 
-- Use `presentation: "auto"` (the default) or `"inline"` for ordinary choices, small forms, comparisons, explanatory tables and code excerpts. Keep useful conversation context visible. Do not request fullscreen for every call.
-- Use `presentation: "fullscreen"` when the user asks for an expanded view or the task needs sustained inspection of dense content. Users can press F2 to expand or collapse an open interactive view while retaining their edits and focus. A fullscreen display-only document closes on Enter and remains inline; Escape closes it with a cancelled result.
+- Use `presentation: "auto"` (the default) or `"inline"` for ordinary choices, small forms, comparisons, explanatory tables and code excerpts. Local widgets require one of these presentations and keep the normal composer visible. Do not request fullscreen for every call.
+- In collect mode, use `presentation: "fullscreen"` when the user asks for an expanded view or the task needs sustained inspection of dense content. F2 expands or collapses the open form while retaining edits and focus. A fullscreen display-only document closes on Enter and remains inline; Escape returns a cancelled result. Local widgets do not currently expand: `interaction: "local"` with fullscreen is rejected.
 - For a display with no decision to collect, use Text, Markdown, Table, List, CodeBlock or other display components without a Button or field. An inline display returns `status: "displayed"`; it is neither a user choice nor approval. Use normal prose when it communicates the same information more simply.
 - The catalog still defines the available content. Requesting fullscreen does not add chart, Mermaid, flow-diagram or browser components. Use a supported textual representation or an appropriate artifact tool for those formats.
 
-The [presentation guide](../../docs/inline-ui.md) gives a display-only example and the code/notebook cancellation contract.
+The [presentation guide](../../docs/inline-ui.md) covers static displays and answer collection. The [local interaction guide](../../docs/local-interaction.md) covers persistent widgets, focus, lifecycle and a hosting-cost explorer.
 
 Choose an interaction pattern before selecting components:
 
@@ -30,7 +38,9 @@ Choose an interaction pattern before selecting components:
 | --- | --- |
 | Collect several related decisions | Brief purpose, Section with typed fields, one final action |
 | Compare alternatives and choose | Table with meaningful comparison columns, Select with readable option labels, final choice button |
-| Explore a scenario or relationship | NumberInput/Slider/Toggle, derived Text or Table that updates immediately, Reset and a final use-this-choice button |
+| Explore a scenario or relationship | `interaction: "local"`; NumberInput/Slider/Toggle, derived Text or Table and optional Reset; no final submit button |
+| Browse explanations or inspect a hierarchy without answering | `interaction: "local"`; Tabs, Tree or local disclosure buttons with relevant Text/Markdown |
+| Explore and then give the agent a chosen configuration | `interaction: "collect"`; reactive controls and a clear final use-this-choice button |
 | Move through a short workflow | Steps with clearly labeled local Next/Back buttons and a final submit action; enforce any necessary validation explicitly |
 | Inspect a hierarchy and select an item | Tree with useful labels, relevant supporting details, final selection button |
 
@@ -38,12 +48,12 @@ Choose an interaction pattern before selecting components:
 
 - Use available tools to gather relevant facts missing from context before opening the panel. Use supplied or verified data, preserve units and time ranges, and label assumptions or illustrative numbers. Do not invent availability, prices, measured progress or completed actions.
 - Reuse known preferences and prior answers. Ask only for missing decisions, choose reasonable defaults, and leave genuinely optional fields optional. Do not add agreement checkboxes or extra steps to ordinary forms without a task-specific reason.
-- Give the screen a clear hierarchy: purpose, essential controls, visible consequences or comparison, then the final action. Use short labels and plain-language descriptions. Group related fields; introduce Tabs, Steps or Cards only when they reduce complexity.
-- Make controls meaningful. In an exploration, changing a bound value should update relevant Text, Table or Progress expressions immediately. Keep these local calculations inside the open form rather than requiring another model call for each change. Offer Reset when experimentation is useful.
-- Local actions cannot fetch fresh data, run tools or execute scripts. If a choice requires new evidence or external work, submit the choice back to the agent, use the appropriate tools, and continue from the result. Do not label a local state update as a completed deployment, live refresh or actual measured progress.
+- Give the screen a clear hierarchy: purpose, essential controls, visible consequences or comparison, then a final action only when collecting an answer. Use short labels and plain-language descriptions. Group related fields; introduce Tabs, Steps or Cards only when they reduce complexity.
+- Make controls meaningful. In an exploration, changing a bound value should update relevant Text, Table or Progress expressions immediately. Keep these calculations inside the widget or form rather than requiring another model call for each change. Offer Reset when experimentation is useful.
+- Local actions cannot fetch fresh data, run tools or execute scripts. If the agent needs a choice for new evidence or external work, use collect mode to submit it, then use the appropriate tools. A local widget never forwards its edited values; do not infer an answer from its mounting, focus changes or dismissal. Do not label a local state update as a completed deployment, live refresh or actual measured progress.
 - Treat Pi's keyboard navigation, resizing and theme as part of the design. Avoid meaning conveyed only by color, excessive nesting, decorative borders, long option labels or layouts that depend on a wide terminal. Use semantic styling sparingly.
 
-Before calling the tool, check that the document is complete, every control serves the task, dependent values are bound correctly, and the final button accurately describes what submitting does.
+Before calling the tool, check the interaction mode, complete syntax, useful controls and bound dependent values. In collect mode, the final button must accurately describe submission. In local mode, omit all submission paths, including hidden or conditional ones.
 
 ## Choose components by the user's task
 
@@ -67,7 +77,7 @@ Before calling the tool, check that the document is complete, every control serv
 | Explanatory content / source code | `Markdown` / `CodeBlock`; give code its language where known. |
 | A checklist of information / comparable records | `List` / `Table`; Table is read-only, so use selection controls to request a choice. |
 | A short status / a measured amount of progress | `Badge` / `Progress`; progress must reflect actual known state. |
-| Update the form or submit a decision | `Button`; label the action clearly, such as “Reset fields” or “Send choices”. |
+| Update a widget or submit a decision | `Button`; local widgets allow Set/Reset only, such as “Reset fields”. “Send choices” belongs to collect mode. |
 
 ## Build a usable document
 
@@ -75,19 +85,19 @@ Before calling the tool, check that the document is complete, every control serv
 2. Declare `$variables` with the correct types: strings for text, dates and single selections; booleans for Checkbox/Toggle; numbers for NumberInput/Slider; string arrays for MultiSelect.
 3. Give every field a unique name, including Tabs/Steps. Names are data keys; labels are what the user reads. Keep option, page and tree values unique.
 4. Use common `{description, required, disabled, error}` settings only when needed. Required boolean fields must be true. A disabled field retains its value in the submitted result. Disabled Tabs/Steps also disable their descendants.
-5. Keep the main action obvious. With several pages, put the final submit button outside the page group. Hidden fields retain their values and still validate; failed submission reveals an invalid enabled field.
-6. Design for keyboard use: Tab moves focus, arrows navigate, Space toggles choices, and Enter activates buttons. TextArea uses Enter for newlines and Ctrl+Enter to advance. F2 toggles inline/fullscreen presentation. Pi's fullscreen TUI supports mouse input on either presentation; its regular TUI mode remains usable by keyboard.
+5. In collect mode, keep the final submit action obvious and outside a multipage group. Hidden fields retain their values and still validate; failed submission reveals an invalid enabled field. Local exploration needs no final action; Reset or disclosure buttons may help.
+6. Design for keyboard use: Tab moves between controls, arrows navigate, Space toggles choices, and Enter activates buttons. TextArea uses Enter for newlines and Ctrl+Enter to advance. For local widgets, F6 transfers focus between chat and the widget; Shift+F6 cycles widgets. Escape or Ctrl+C while a local widget is focused returns to chat without dismissing it. In collect mode, F2 toggles inline/fullscreen and Escape/Ctrl+C cancels. Pi's fullscreen host supports mouse interaction; regular mode remains usable by keyboard.
 
-Submit a complete OpenUI Lang document in `source`, without Markdown fences. Streaming previews are read-only until the final document is valid; do not rely on users editing an unfinished document. Open only one interactive view at a time. Escape and Ctrl+C close the view and return `status: "cancelled"` to the caller.
+Pass a complete OpenUI Lang document in `source`, without Markdown fences. Local widgets mount only after complete-document validation. Collect-mode streaming previews are read-only until the final document is valid; do not rely on editing unfinished source. Only one answer-collecting form owns focus at a time; multiple local widgets can coexist with independent state.
 
 ## Local actions and submission
 
 - `@Set($variable, expression)` and `@Reset($variable, ...)` update the current panel without closing it.
 - `Action([...])` runs supported steps in order, up to 32 steps. Each step sees preceding state changes. A failed structural update rolls the plan back.
-- `@ToAssistant(message, context?)` submits the current typed values and closes the panel. If used in a plan, it must be the final step. A legacy string action identifier also submits.
+- In collect mode, `@ToAssistant(message, context?)` submits current typed values and closes the form. If used in a plan, it must be last. A legacy string action identifier also submits. Local mode rejects both, even on hidden pages or inactive conditional paths; `Action([...])` may contain only Set/Reset steps there.
 - All update targets must be declared variables. Query, Mutation, `@Run`, `@OpenUrl` and external tool execution are unsupported button actions.
 
-Check the result's `status`. On `submitted`, use the actual `values` for field answers and `context` for any supplied action payload; do not reconstruct answers from defaults or the receipt. On `displayed`, content was shown without collecting input; continue only work already authorized independently of that display. On `cancelled`, the form was dismissed and supplied no choices. The awaiting code resumes normally, and the notebook stays running. Handle this result explicitly: skip work that requires the missing answer, continue any independently authorized work as appropriate, and do not substitute default choices or automatically reopen the form. On `error`, use the diagnostics to correct the specific problem instead of resending the same document. If a valid UI cannot be produced, explain the issue and use an appropriate conversational fallback. Do not turn cancellation into an automatic retry.
+Check the result's `status`. On `mounted`, the local widget was created; the call is finished and no final value, choice or approval was returned. Continue independently authorized work without waiting for a later UI result. Do not poll the widget, ask it to submit, or treat its defaults as user answers. On `submitted`, use the actual `values` for field answers and `context` for any supplied action payload; do not reconstruct answers from defaults or the receipt. On `displayed`, content was shown without collecting input; continue only work already authorized independently of that display. On `cancelled`, the form was dismissed and supplied no choices. The awaiting code resumes normally, and the notebook stays running. Handle this result explicitly: skip work that requires the missing answer, continue any independently authorized work as appropriate, and do not substitute default choices or automatically reopen the form. On `error`, use the diagnostics to correct the specific problem instead of resending the same document. If a valid UI cannot be produced, explain the issue and use an appropriate conversational fallback. Do not turn cancellation into an automatic retry.
 
 Submission means the user supplied input. Continue the authorized task using that input, with a concise explanation of the next action when useful. The receipt already acknowledges the decision; avoid repeating its entire table or dumping JSON into the conversational reply. Do not claim that files changed, a deployment ran or another external action completed merely because the form was submitted.
 
@@ -108,7 +118,7 @@ Use a short, neutral `title` naming the decision, such as “Review configuratio
 
 The renderer chooses status wording, colors, spacing and truncation using Pi's active theme. Expanded details remain available. Native code mode displays the receipt separately in the transcript; mixed scripts retain their other tool output. Preserve that output and any data the model needs.
 
-For a comparison, summarize the chosen alternative and key parameters. For an exploration, summarize the inputs the user settled on and include derived outputs in the action context when useful. For a workflow, summarize the final decisions rather than the tab or step visited. Request only actual field names in `summary.fields`; display-only computed values are not fields.
+Local widgets have no submitted values to summarize; `summary.title` names the widget and `summary.fields` does not expose edits. For an answer-collecting comparison, summarize the chosen alternative and key parameters. For exploration followed by an explicit answer, summarize the submitted inputs and include derived outputs in action context when useful. For a workflow, summarize the final decisions rather than the tab or step visited. Request only actual field names in `summary.fields`; display-only computed values are not fields.
 
 ## Example: one decision
 
@@ -150,9 +160,9 @@ root = Stack([
 ]);
 ```
 
-## Example: explore a scenario locally
+## Example: explore and submit an estimate
 
-For an illustrative work estimate, use `summary: {title: "Work estimate", fields: ["people", "hours", "rate"]}`. These defaults are examples, not verified prices. Changing a control recomputes the table immediately; the final context carries the derived total.
+Use `interaction: "collect"` when the agent needs the chosen estimate. For this illustrative work estimate, use `summary: {title: "Work estimate", fields: ["people", "hours", "rate"]}`. These defaults are examples, not verified prices. Changing a control recomputes the table immediately; the final context carries the derived total.
 
 ```openui
 $people = 2;
@@ -177,9 +187,30 @@ root = Stack([
 ]);
 ```
 
+## Example: explore without sending an answer
+
+Use `interaction: "local"`, `presentation: "inline"` and `summary: {title: "Hosting explorer"}` with this document. The supplied prices are illustrative monthly amounts; all changes recompute locally and no final answer is expected:
+
+```openui
+$workers = 4;
+basic = 10 + 4 * ($workers > 2 ? $workers - 2 : 0);
+standard = 20 + 4 * ($workers > 5 ? $workers - 5 : 0);
+pro = 40 + 4 * ($workers > 12 ? $workers - 12 : 0);
+root = Stack([
+  NumberInput("workers", "Requested workers", $workers, {min: 0, max: 100, step: 1}),
+  Table(["Plan", "Monthly cost"], [["Basic", basic], ["Standard", standard], ["Pro", pro]]),
+  Text("Example prices. Each additional worker costs $4/month.", {tone: "muted"}),
+  Button("Reset workers", @Reset($workers))
+]);
+```
+
+A successful return is `{status: "mounted", widgetId: "..."}`. It contains no selected worker count. F6 moves between chat and the widget; Shift+F6 selects another widget. `/openui-focus [id]` selects one explicitly, and `/openui-close [id]` dismisses it without sending values. Focus changes, Reset, dismissal and subsequent chat never submit an answer. Local mode rejects fullscreen, ToAssistant, legacy string submissions and unsupported external actions.
+
+Live state stays with its widget across ordinary turns. Session navigation or shutdown disposes that state and input handlers; restoring a session or replaying a branch reconstructs still-open widgets from their original source/defaults. Explicitly dismissed widgets stay closed. Edited values and cursor state are not persisted. Pi compaction disposes widgets whose transcript rows are removed; widgets still in the visible branch retain live state. At most 16 widgets can remain active. If the task needs a durable final choice for the agent, use a separate collect-mode form and let the user supply it explicitly.
+
 ## Code and notebook execution
 
-When `show_ui` is callable through native `codemode`, await it. An interactive call stays pending while the user edits fields and runs local actions, then returns a submitted result. Display-only inline calls return immediately with `status: "displayed"`. Cancelling the form resolves the same promise with `{status: "cancelled"}`. Code after the await can handle that result; no notebook restart is required. Avoid short script deadlines and concurrent views.
+When `show_ui` is callable through native `codemode`, await it. A local call returns `status: "mounted"` once its transcript widget is installed; the cell and agent turn can finish while the widget remains usable. Display-only inline calls return `status: "displayed"` immediately. A collect-mode form stays pending during editing, then returns submission or `{status: "cancelled"}`. Code after the await handles that result without a notebook restart. Avoid short script deadlines and concurrent answer-collecting forms.
 
 ```js
 const result = await tools.show_ui({
@@ -197,6 +228,6 @@ Only script output reaches the model after native code mode finishes. Output the
 
 `@howaboua/pi-codex-conversion` 4.0.7 exposes the same `await tools.show_ui(...)` call and structured result through its Code/Notebook tool bridge. Use the adapter's advertised enclosing execution tool; do not assume it is named `codemode`. Notebook bindings persist between cells, so avoid redeclaring an existing top-level `const`. Other adapters may expose a different namespace or envelope: follow their discovered API. Await the UI, inspect its status before using answers, and emit the relevant typed result for the model. A cancelled form supplies no choices. Branch on its status before using values or calling tools that depend on a submitted answer. Inline/fullscreen presentation and component semantics are the same whichever adapter invokes the tool.
 
-The conversion integration keeps a pending `show_ui` attached to its enclosing cell even if the cell's yield budget elapses. Do not interpret elapsed yield time as a user response or launch another UI to replace the waiting one. Both submission and cancellation finish the UI call and return their structured result to the waiting code.
+A local widget is independent of the originating code/notebook cell after `mounted` returns; later chat messages do not submit or freeze it. No background tool invocation or model turn is needed for its edits. The conversion integration keeps a pending collect-mode `show_ui` attached to its enclosing cell even if the cell's yield budget elapses. Do not interpret elapsed yield time as a user response or launch another UI to replace the waiting one. Both submission and cancellation finish the UI call and return their structured result to the waiting code.
 
 Form dismissal leaves the running cell and notebook state intact in conversion Code, Deno Notebook, JavaScript Notebook and TypeScript Notebook modes. Do not restart a notebook because a form returned `cancelled`. A separate host stop, timeout or session shutdown follows the host's normal cancellation lifecycle.

@@ -59,7 +59,7 @@ function host() {
     stream() {
       handlers.get("message_update")!({ assistantMessageEvent: {
         type: "toolcall_delta", contentIndex: 0, delta: "",
-        partial: { content: [{ type: "toolCall", id: "catalog", name: "show_ui", arguments: { source: CATALOG_DEMO_SOURCE, presentation: "fullscreen" } }] },
+        partial: { content: [{ type: "toolCall", id: "catalog", name: "show_ui", arguments: { interaction: "collect", source: CATALOG_DEMO_SOURCE, presentation: "fullscreen" } }] },
       } }, ctx);
     },
   };

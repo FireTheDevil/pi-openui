@@ -8,9 +8,11 @@ import { createReceipt, isReceipt, isSummaryOutcome, renderReceipt, renderOpenUI
 import { registerCodeSummaries } from "./code-summary.js";
 import { createInlineDocument, hasInteractiveContent, isInlineDocument, renderInlineDocument, type InlineDocument } from "./inline-document.js";
 import { registerToolWithConversion } from "./conversion.js";
+import { createLocalWidgets } from "./local-widgets.js";
+import { HOSTING_EXPLORER_SOURCE, LOCAL_EXPLANATION_SOURCE } from "./local-demo.js";
 
 const MAX_SOURCE_LENGTH = limits.source;
-type Outcome = UIResult | { status: "displayed" } | { status: "error"; error: string };
+type Outcome = UIResult | { status: "displayed" } | { status: "mounted"; widgetId: string } | { status: "error"; error: string };
 type ToolDetails = Outcome & { openuiReceipt: Receipt; openuiDocument?: InlineDocument };
 type Presentation = "auto" | "inline" | "fullscreen";
 type Surface = Exclude<Presentation, "auto">;
@@ -32,6 +34,7 @@ const outcomeSchema = Type.Union([
   }),
   Type.Object({ status: Type.Literal("cancelled") }),
   Type.Object({ status: Type.Literal("displayed") }),
+  Type.Object({ status: Type.Literal("mounted"), widgetId: Type.String() }),
   Type.Object({ status: Type.Literal("error"), error: Type.String() }),
 ]);
 interface Panel {
@@ -57,6 +60,7 @@ export default function openuiExtension(pi: ExtensionAPI): void {
   const panels = new Map<string, Panel>();
   let visible: Panel | undefined;
   const codeSummaries = registerCodeSummaries(pi);
+  const localWidgets = createLocalWidgets(pi);
 
   pi.registerMessageRenderer<ToolDetails>("openui-action", (message, options, theme) => {
     if (!isSummaryOutcome(message.details)) return;
@@ -101,6 +105,7 @@ export default function openuiExtension(pi: ExtensionAPI): void {
 
   function show(panel: Panel, ctx: ExtensionContext, title: string): void {
     if (panel.promise || panel.result) return;
+    localWidgets.suspend();
     visible = panel;
     // Do not await custom() from message_update: the provider must keep streaming.
     panel.promise = (async () => {
@@ -187,6 +192,10 @@ export default function openuiExtension(pi: ExtensionAPI): void {
     if (delta.type !== "toolcall_start" && delta.type !== "toolcall_delta" && delta.type !== "toolcall_end") return;
     const call = delta.type === "toolcall_end" ? delta.toolCall : delta.partial.content[delta.contentIndex];
     if (call?.type !== "toolCall" || call.name !== "show_ui" || typeof call.arguments.source !== "string") return;
+    // Arguments may stream source before the interaction contract. Never seize
+    // the composer for a request that can still become a local-only widget.
+    if (call.arguments.interaction === "local") return;
+    if (call.arguments.interaction !== "collect" && delta.type !== "toolcall_end") return;
     let panel = panels.get(call.id);
     // Only one custom UI owns keyboard focus. Other calls open sequentially on execute.
     if (!panel && (visible || panels.size >= 32)) return;
@@ -205,20 +214,24 @@ export default function openuiExtension(pi: ExtensionAPI): void {
   registerToolWithConversion(pi, {
     name: "show_ui",
     label: "OpenUI",
-    description: "Render OpenUI Lang inline in Pi's terminal conversation. Display-only documents return immediately; choices and forms wait inline for user input. Use presentation: fullscreen for explicit expanded inspection; F2 toggles interactive forms. Local Set/Reset actions update controls, ToAssistant submits current values. Escape or Ctrl+C closes the form and returns status: cancelled as a normal result. Requires interactive Pi TUI mode.",
-    promptSnippet: "Render useful content inline, or collect structured input inline with optional fullscreen expansion.",
+    description: "Render OpenUI Lang in Pi's terminal. Static documents return displayed immediately. Set interaction: local for a persistent interactive transcript widget: returns mounted immediately, keeps chat available, and never sends edited values to the model. Local widgets allow navigation, Set/Reset and local-only Action sequences, and reject submission/external actions. Default interaction: collect waits for answers in an inline form; ToAssistant submits, Escape/Ctrl+C returns cancelled normally. Requires interactive Pi TUI mode.",
+    promptSnippet: "Show static content, mount nonblocking local exploration, or collect a structured answer with native terminal UI.",
     promptGuidelines: [
       "Use the OpenUI component library in the openui prompt section. Submit a complete program in source, with root = Stack([...]).",
       "Use UI proactively when interaction helps; keep simple answers and requested plain-text comparisons in prose. When available, read the openui skill for interaction patterns and component selection. Ground displayed facts in context or tools and bind exploratory controls to visible local calculations.",
       "Optional summary.title and summary.fields choose the receipt title and field names; Pi handles theme and status. Continue from the actual submitted values, respect cancellation, and use error diagnostics to repair invalid documents. A submitted form means user input was received, not that the requested work was executed.",
       "Prefer presentation: auto (the default) or inline for ordinary content and forms. Display-only documents return status: displayed without acknowledgement; do not add a Continue button just to show content. Use fullscreen only when explicitly requested or expanded inspection helps. No chart or Mermaid renderer is provided by this catalog.",
-      "In code/notebook execution, await the host's show_ui callable and inspect status (submitted, displayed, cancelled or error). Interactive forms wait for the user; avoid short timeouts and concurrent panels. Cancellation resolves normally and the caller continues; only use values when status is submitted, handle cancelled without treating defaults as user choices, and do not automatically reopen the form. Include relevant results in output when the agent needs them.",
+      "For calculators, scenario explorers, tabs, trees and other local exploration that needs no answer, explicitly set interaction: local. It mounts in the transcript and returns status: mounted plus widgetId; this is no approval or chosen value. All edited values remain local, including on blur, close and later chat. Use Set/Reset or Action of those only; no ToAssistant, legacy submit strings or external actions, even in hidden branches. Local mode requires auto/inline presentation. F6 transfers focus, Escape returns to chat, /openui-close dismisses. Removing a Submit button alone does not make the default workflow nonblocking.",
+      "In code/notebook execution, await the host's show_ui callable and inspect status (submitted, displayed, mounted, cancelled or error). Answer-collecting forms wait for the user; avoid short timeouts and concurrent forms. Local widgets return without waiting and remain interactive after the cell/turn. Cancellation of a collecting form resolves normally; only use values when status is submitted, handle cancelled without treating defaults as user choices, and do not automatically reopen it. Include relevant results in output when the agent needs them.",
     ],
     parameters: Type.Object({
       source: Type.String({ minLength: 1, maxLength: MAX_SOURCE_LENGTH, description: "Complete OpenUI Lang program, without Markdown fences." }),
+      interaction: Type.Optional(Type.Union([Type.Literal("collect"), Type.Literal("local")], {
+        description: "Default collect waits for an answer when the document is interactive. Local mounts a nonblocking interactive transcript widget and returns mounted immediately; no edited values are sent to the model. Set before source when streaming collect previews.",
+      })),
       summary: Type.Optional(summarySchema),
       presentation: Type.Optional(Type.Union([Type.Literal("auto"), Type.Literal("inline"), Type.Literal("fullscreen")], {
-        description: "Default auto renders ordinary content and forms inline. Fullscreen requests expanded inspection. Users can toggle interactive forms with F2.",
+        description: "Default auto renders content inline. Fullscreen requests expanded inspection for collect mode, with F2 toggling forms. Local interaction supports auto/inline only.",
       })),
     }),
     outputSchema: outcomeSchema,
@@ -253,6 +266,14 @@ export default function openuiExtension(pi: ExtensionAPI): void {
         const old = panels.get(id);
         if (old) release(old);
         return reply({ status: "cancelled" });
+      }
+      if (params.interaction === "local") {
+        // The completed contract supersedes any explicit collect preview. No
+        // panel, run AbortSignal or tool promise owns a mounted local widget.
+        const preview = panels.get(id);
+        if (preview) release(preview);
+        if (params.presentation === "fullscreen") return reply({ status: "error", error: 'interaction: "local" requires presentation: "auto" or "inline". Local widgets stay in the conversation; use collect for fullscreen answer workflows.' });
+        return reply(localWidgets.mount(id, params.source, params.summary?.title, ctx));
       }
       const panel = panels.get(id) ?? create(id);
       panel.summary = params.summary;
@@ -293,15 +314,22 @@ export default function openuiExtension(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand("openui-demo", {
-    description: "Try inline OpenUI; --fullscreen expands, --actions demonstrates buttons, --catalog shows all components, --stream previews parsing.",
+    description: "Try OpenUI; --local mounts a cost explorer, --local-tabs mounts an explanation; --fullscreen, --actions, --catalog and --stream demonstrate forms.",
     async handler(args, ctx) {
       if (ctx.mode !== "tui") {
         ctx.ui.notify("/openui-demo requires Pi interactive TUI mode.", "error");
         return;
       }
       const flags = args.trim() ? args.trim().split(/\s+/) : [];
+      if (flags.length === 1 && (flags[0] === "--local" || flags[0] === "--local-tabs")) {
+        const isTabs = flags[0] === "--local-tabs";
+        const result = localWidgets.mount(`demo:${Date.now()}`, isTabs ? LOCAL_EXPLANATION_SOURCE : HOSTING_EXPLORER_SOURCE,
+          isTabs ? "Hosting explained" : "Hosting cost explorer", ctx);
+        if (result.status === "error") ctx.ui.notify(result.error, "error");
+        return;
+      }
       if (new Set(flags).size !== flags.length || flags.some(flag => !["--stream", "--actions", "--catalog", "--fullscreen"].includes(flag)) || (flags.includes("--actions") && flags.includes("--catalog"))) {
-        ctx.ui.notify("Usage: /openui-demo [--actions | --catalog] [--stream] [--fullscreen]", "error");
+        ctx.ui.notify("Usage: /openui-demo --local | --local-tabs | [--actions | --catalog] [--stream] [--fullscreen]", "error");
         return;
       }
       if (visible) {
@@ -355,7 +383,9 @@ export default function openuiExtension(pi: ExtensionAPI): void {
   pi.on("session_shutdown", () => {
     for (const panel of panels.values()) release(panel);
     codeSummaries.clear();
+    localWidgets.clear();
   });
-  pi.on("session_start", (_event, ctx) => codeSummaries.rehydrate(ctx));
-  pi.on("session_tree", (_event, ctx) => codeSummaries.rehydrate(ctx));
+  pi.on("session_start", (_event, ctx) => { codeSummaries.rehydrate(ctx); localWidgets.rehydrate(ctx); });
+  pi.on("session_tree", (_event, ctx) => { codeSummaries.rehydrate(ctx); localWidgets.rehydrate(ctx); });
+  pi.on("session_compact", (_event, ctx) => localWidgets.prune(ctx));
 }

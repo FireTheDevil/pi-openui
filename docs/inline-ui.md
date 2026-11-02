@@ -1,14 +1,17 @@
 # Inline presentation and cancellation
 
-`show_ui` uses inline presentation by default. Its behavior depends on the document:
+`show_ui` uses inline presentation by default. Choose static display, local exploration or answer collection independently of the layout. Local widgets use `interaction: "local"`; default/`interaction: "collect"` retains the existing answer-collection behavior.
 
 | Document | Default behavior | Result |
 | --- | --- | --- |
 | Display components only, such as Text, Table, Markdown or CodeBlock | Render persistent content in the conversation without taking keyboard focus | `status: "displayed"` |
-| Fields, Tabs/Steps navigation or buttons | Focus a compact native view in Pi's editor area while leaving conversation context visible | Typed `submitted` result after a final action |
+| `interaction: "local"` with controls, navigation or local buttons | Mount an interactive conversation entry; normal chat remains available | Immediate `status: "mounted"` plus `widgetId`; no chosen values |
+| Default/`interaction: "collect"` with fields, navigation or buttons | Focus a compact native view in Pi's editor area while leaving conversation context visible | Typed `submitted` result after a final action |
 | Explicit `presentation: "fullscreen"` | Open an expanded view for inspection or interaction | Submission for a form; Enter closes display-only content and leaves it inline |
 
-`presentation: "auto"` and `"inline"` both prefer inline content. Choose fullscreen when the user asks to expand something or sustained inspection needs the space. The component catalog is unchanged: fullscreen does not add a chart, Mermaid or browser renderer.
+`presentation: "auto"` and `"inline"` both prefer inline content. For collect-mode forms and static inspection, choose fullscreen when the user asks to expand something or sustained inspection needs the space. Local widgets reject fullscreen and have no expansion step. The component catalog is unchanged: fullscreen does not add a chart, Mermaid or browser renderer.
+
+The [local interaction guide](local-interaction.md) defines persistent interactive widgets: immediate return, F6 focus transfer, local-only actions, multiple-widget state and restart/replay limits. Removing a Submit button from a default form does not enable that mode.
 
 For example, a table can be shown without an acknowledgement button:
 
@@ -43,15 +46,15 @@ Cancelling this notebook form returned `status: "cancelled"`. The receipt is fol
 
 ## Interaction and expansion
 
-An inline form still takes keyboard focus and waits for input; it is not a background widget competing with the prompt editor. Tab, arrows and Enter work as usual. F2 expands the current interactive view or returns it inline, preserving values, draft text, focus and local state. Expansion does not submit the form or create a second tool call.
+An answer-collecting inline form still takes keyboard focus and waits for input; it is not a background widget competing with the prompt editor. Tab, arrows and Enter work as usual. F2 expands the current interactive view or returns it inline, preserving values, draft text, focus and local state. Expansion does not submit the form or create a second tool call.
 
 Pi's host mode and OpenUI presentation are separate choices. `pi --tui-mode fullscreen` enables the host's mouse routing for both inline and expanded OpenUI views. `pi --tui-mode regular` supports keyboard interaction and leaves mouse handling to the terminal. Resizing reflows content and adjusts the inline viewport; large forms scroll rather than covering the entire conversation by default.
 
-After submission, the compact form is replaced by its themed receipt. The complete typed result remains available to the caller. Display-only content remains as rendered content rather than an invented submission receipt. Long inline displays have a compact preview; expand transcript details with Pi's usual shortcut (Ctrl+O by default) to see the complete document. F2 applies while an interactive or expanded inspection view is open. Native code-mode presentation metadata is stored separately from model-visible output, so scripts should still emit data the model needs.
+After submission, the compact form is replaced by its themed receipt. The complete typed result remains available to the caller. Display-only content remains as rendered content rather than an invented submission receipt. Long inline displays have a compact preview; expand transcript details with Pi's usual shortcut (Ctrl+O by default) to see the complete document. F2 applies while an answer-collecting form or expanded static inspection view is open. Native code-mode presentation metadata is stored separately from model-visible output, so scripts should still emit data the model needs.
 
 ## Cancellation
 
-While an OpenUI view has focus, Escape or Ctrl+C closes it and resolves `show_ui` with `{"status":"cancelled"}`. This is an ordinary tool result, like a submission outcome. It does not abort the Pi run, terminate the current cell or stop the notebook kernel. The waiting caller resumes and can decide what to do next.
+While an answer-collecting OpenUI view has focus, Escape or Ctrl+C closes it and resolves `show_ui` with `{"status":"cancelled"}`. This is an ordinary tool result, like a submission outcome. It does not abort the Pi run, terminate the current cell or stop the notebook kernel. The waiting caller resumes and can decide what to do next.
 
 A cancelled result contains no submitted `values`, `state` or `context`. Check the status before using answers or performing work that depends on them. For example:
 
@@ -70,6 +73,8 @@ The caller may continue independently authorized work after handling cancellatio
 
 Closing a fullscreen display-only document with Enter returns `displayed` and leaves the content inline. Escape returns `cancelled`. F2 collapse of that display-only view also returns it to persistent inline content.
 
+In local mode, the tool has already returned `mounted`. Escape/Ctrl+C simply returns focus to chat; explicit dismissal sends no outcome or values back to that completed call.
+
 A separate host stop, tool timeout, session abort or shutdown follows the host's normal cancellation lifecycle and releases the view and listeners. Those operations are independent of dismissing a form. Cancelling `/openui-demo` records a receipt without submitting a synthetic user action or starting an extra model turn.
 
 ## Execution modes
@@ -78,7 +83,7 @@ Normal Pi invokes `show_ui` directly. Native Pi code mode invokes `await tools.s
 
 `@howaboua/pi-codex-conversion` 4.0.7 exposes `await tools.show_ui({...})` through the same bridge in its Code and Notebook runtimes. Because `show_ui` declares an output schema, the bridge returns structured output, including `status` and submitted typed fields. Its enclosing `exec` tool and persistent notebook lifecycle are separate from native Pi `codemode`. Use unique top-level bindings or reuse existing ones in a notebook; a second `const result` in the same kernel can be a redeclaration error.
 
-OpenUI also registers the callable as blocking through the conversion package's public extension-tool protocol. This keeps the enclosing execution waiting for the UI result even after the cell's yield budget expires. Submission and cancellation both resolve the UI call normally; ordinary script execution and yielding can then resume. Other tools retain the adapter's ordinary scheduling. This integration adds no conversion-package runtime dependency and does not patch its globals or runtime.
+OpenUI also registers the callable as blocking through the conversion package's public extension-tool protocol. For collect-mode forms this keeps the enclosing execution waiting for the UI result even after the cell's yield budget expires; local-mode calls finish immediately after mounting. Submission and cancellation both resolve the UI call normally; ordinary script execution and yielding can then resume. Other tools retain the adapter's ordinary scheduling. This integration adds no conversion-package runtime dependency and does not patch its globals or runtime.
 
 Configure the adapter through `/codex` and its General execution-mode setting. An isolated test agent directory can instead contain `pi-codex-conversion.json`:
 
@@ -91,7 +96,7 @@ Configure the adapter through `/codex` and its General execution-mode setting. A
 
 Use `"code"` for Code Mode. The directory is Pi's configured agent directory (`PI_CODING_AGENT_DIR` when explicitly set). Load the adapter and this extension in the same interactive Pi session. This file configures the conversion adapter; it does not select Pi's native `codemode`.
 
-Both presentation choices are implemented at the shared `show_ui` boundary. Form cancellation is a normal result in conversion Code, Deno Notebook, JavaScript Notebook and TypeScript Notebook modes. Live notebook variables remain available to the caller and later cells; no restart is required because the form was dismissed. Explicitly stopping a cell or the host is a separate operation with its own runtime lifecycle.
+Interaction and presentation are implemented at the shared `show_ui` boundary. A local widget returns `mounted` without waiting for input in every adapter; ordinary script/cell execution can then continue while the transcript widget retains its own local state. Both collect-mode presentation choices are supported. Form cancellation is a normal result in conversion Code, Deno Notebook, JavaScript Notebook and TypeScript Notebook modes. Live notebook variables remain available to the caller and later cells; no restart is required because the form was dismissed. Explicitly stopping a cell or the host is a separate operation with its own runtime lifecycle.
 
 For evaluation, run each mode with an observable operation immediately after the awaited UI. Both submission and form cancellation should reach it with their corresponding status. Guard a separate answer-dependent operation so only a submitted result reaches it. Verify that malformed documents return diagnostics and that notebook variables survive a cancelled form without a restart. See the [model evaluation guide](model-evaluation.md) for generation-quality checks and the distinction between a deterministic test provider and an external model.
 
@@ -108,9 +113,11 @@ npm run test:compat
 
 These checks execute the real conversion runtimes with a simulated terminal/session boundary. All four modes run by default; `OPENUI_PCC_MODES` can restrict the set. They exercise inline displays, local state changes and typed submission, cancellation returned to the waiting caller, continued execution and preserved notebook state. Actual CLI tests complement them by checking the full extension registration and terminal lifecycle. Neither kind of test measures external-model generation quality.
 
-All 28 runtime compatibility tests passed with Pi 1.4.0, Node 24.19 and conversion 4.0.7: Code used Rust v0.163.0; Deno Notebook used Deno 2.9.8; JavaScript Notebook used quickjs-wasi 3.6.3; TypeScript Notebook used tsrs 0.20.0-ts7.1.0-beta. Cancellation cases included a UI open beyond its requested yield budget and a UI opened by `wait` on a previously yielded cell. Each returned `cancelled` and resumed its caller exactly once without requesting a host abort. Deno, JavaScript and TypeScript tests retained variables and closures modified before dismissal and reused them in a later cell without restarting.
+The v0.6.1 baseline of 28 runtime compatibility tests passed with Pi 1.4.0, Node 24.19 and conversion 4.0.7: Code used Rust v0.163.0; Deno Notebook used Deno 2.9.8; JavaScript Notebook used quickjs-wasi 3.6.3; TypeScript Notebook used tsrs 0.20.0-ts7.1.0-beta. Cancellation cases included a UI open beyond its requested yield budget and a UI opened by `wait` on a previously yielded cell. Each returned `cancelled` and resumed its caller exactly once without requesting a host abort. Deno, JavaScript and TypeScript tests retained variables and closures modified before dismissal and reused them in a later cell without restarting.
 
 ## Verified CLI paths
+
+The matrix below records the v0.6.1 static/collect baseline. It does not claim local-widget coverage; see [local interaction](local-interaction.md) for that contract and its validation.
 
 The v0.6.1 cancellation and inline presentation checks passed in six actual Pi 1.4.0 CLI configurations with Node 24 and a deterministic local provider:
 
