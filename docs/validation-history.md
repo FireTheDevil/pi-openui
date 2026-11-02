@@ -2,6 +2,10 @@
 
 Recorded release checks and their scope. These results do not guarantee behavior with every model or environment.
 
+## Uncapped interactive content width
+
+After removing the shared interactive renderer's 96-column cap, `npm run typecheck` and all 236 existing `npm test` cases passed. No unit tests were added. An ad hoc renderer smoke check at terminal widths 18, 80, 160 and 240 produced maximum rendered widths of 18, 80, 160 and 238 respectively. Overflow cues remained present at 80 and 160 columns; the same content fit without overflow at 240 columns. This checks native renderer output, not a reloaded interactive Pi session. Earlier interactive evidence below predates this width change.
+
 ## Issue #5 — local viewport cues (2026-11-02 UTC)
 
 The working branch `fix/local-widget-scroll-cues`, based on `bbbb6ba`, passed `npm run typecheck` and all 236 existing `npm test` cases. No unit tests were added. `git diff --check` passed. The UI detector reported no findings for `src/view.ts`.

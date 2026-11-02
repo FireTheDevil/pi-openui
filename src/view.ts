@@ -474,7 +474,7 @@ export class OpenUIView implements Component, Focusable {
       if (this.surfaceGesture) this.surfaceGesture.cancelled = true;
     }
     this.viewportSize = { width, height };
-    let contentWidth = width >= 40 ? Math.min(96, width - 4) : width;
+    let contentWidth = width >= 40 ? width - 4 : width;
     const contentLeft = this.surface === "inline" ? (width >= 40 ? 2 : 0) : Math.floor((width - contentWidth) / 2);
     this.pageSize = height < 3 ? height : height - 2;
     let rendered = this.documentBlock(contentWidth);

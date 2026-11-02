@@ -11,6 +11,8 @@
 
 `presentation: "auto"` and `"inline"` both prefer inline content. For collect-mode forms and static inspection, choose fullscreen when the user asks to expand something or sustained inspection needs the space. Local widgets reject fullscreen and have no expansion step. The component catalog is unchanged: fullscreen does not add a chart, Mermaid or browser renderer.
 
+Interactive views use the available terminal width with small side margins, rather than a fixed content-width cap.
+
 The [local interaction guide](local-interaction.md) defines persistent interactive widgets: immediate return, F6 focus transfer, local-only actions, multiple-widget state and restart/replay limits. Removing a Submit button from a default form does not enable that mode.
 
 For example, a table can be shown without an acknowledgement button:

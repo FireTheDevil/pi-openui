@@ -24,7 +24,7 @@ Local mode currently rejects `presentation: "fullscreen"`. There is no F2 expans
 
 ## Focus and interaction
 
-Mounting never steals keyboard focus. The widget header and status hint identify its local interaction mode. Use:
+Mounting never steals keyboard focus. Widgets use the available terminal width, with small side margins and no fixed content-width cap. The widget header and status hint identify its local interaction mode. Use:
 
 | Action | Shortcut or command |
 | --- | --- |
