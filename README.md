@@ -14,18 +14,26 @@ See the [versioning policy](docs/versioning.md) for future release conventions a
 
 Requires Node.js 22.19+ and Pi with the `@earendil-works` package namespace (tested on Node 24).
 
-Once published to npm, install the extension and bundled skill with:
+Install the extension and bundled skill from [GitHub](https://github.com/FireTheDevil/pi-openui):
 
 ```sh
-pi install npm:pi-openui-tui
+pi install git:github.com/FireTheDevil/pi-openui
 ```
 
 Restart Pi or run `/reload` in an existing session, then try `/openui-demo --local`. Use `/openui-demo` for an answer-collecting form.
 
-Until the npm release is available, install from [GitHub](https://github.com/FireTheDevil/pi-openui):
+To install a specific branch or tag, replace `BRANCH_OR_TAG` with its name:
 
 ```sh
-pi install git:github.com/FireTheDevil/pi-openui
+pi install git:github.com/FireTheDevil/pi-openui@BRANCH_OR_TAG
+```
+
+### npm (not yet published)
+
+The package name is `@firethedevil/pi-openui`. After the first npm release, you can install it with:
+
+```sh
+pi install npm:@firethedevil/pi-openui
 ```
 
 ## Run from source
@@ -47,13 +55,7 @@ Run `/openui-demo --local` for the hosting-cost explorer or `/openui-demo --loca
 
 Run `/openui-demo --catalog` to explore all **25 components** across Forms, Layout, Display and Advanced pages. Try the calendar, tree, multiline editor, workflow buttons and typed fields. Complete the required fields, then submit the result to Pi. See the [component reference](docs/components.md) and [actual Pi screenshots](docs/catalog-demo.md). This demo also accepts `--stream`.
 
-To persist installation, run `pi install /absolute/path/to/pi-openui-tui`. The package manifest registers the extension and its bundled `openui` skill. Pi supplies its own TUI at runtime; development dependencies are only for local checks.
-
-To test this branch before it is merged:
-
-```sh
-pi install git:github.com/FireTheDevil/pi-openui@feat/local-interactive-widgets
-```
+To persist installation, run `pi install /absolute/path/to/pi-openui`. The package manifest registers the extension and its bundled `openui` skill. Pi supplies its own TUI at runtime; development dependencies are only for local checks.
 
 Answer-collecting forms open inline in Pi's editor area, keeping conversation context visible. For exploration that needs no answer, `interaction: "local"` mounts an interactive transcript widget and leaves the composer available. For an answer-collecting form, press F2 to expand to fullscreen or return inline without losing edits. Pi's `--tui-mode fullscreen` routes mouse events to both layouts; `--tui-mode regular` retains keyboard interaction and leaves the mouse to the terminal. The host's TUI mode and an OpenUI document's presentation are separate settings.
 

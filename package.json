@@ -1,5 +1,6 @@
 {
-  "name": "pi-openui-tui",
+  "name": "@firethedevil/pi-openui",
+  "publishConfig": { "access": "public" },
   "version": "0.7.0",
   "description": "OpenUI Lang rendered in Pi's native terminal UI",
   "type": "module",
