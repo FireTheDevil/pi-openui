@@ -1,0 +1,28 @@
+$nights = 3;
+$stay = "comfort";
+$page = "budget";
+nightly = $stay == "comfort" ? 140 : 220;
+lodging = nightly * $nights;
+food = 90 * $nights;
+total = lodging + food + 90;
+root = Stack([
+  Text("Two travelers · example NZD prices, not live quotes", {tone: "muted"}),
+  Tabs("page", [
+    {value: "budget", label: "Budget", children: [
+      Row([
+        NumberInput("nights", "Nights away", $nights, {min: 1, max: 14}),
+        Select("stay", "Stay style", [{value: "comfort", label: "Comfort · $140/night"}, {value: "boutique", label: "Boutique · $220/night"}], $stay)
+      ]),
+      Text("Estimated total: NZ$" + total, {bold: true, tone: "success"}),
+      Table(["Category", "NZD"], [["Stay", lodging], ["Food for two", food], ["Local transport", 90]]),
+      Text("Per traveler: NZ$" + total / 2, {tone: "muted"}),
+      Button("Reset estimate", @Reset($nights, $stay))
+    ]},
+    {value: "notes", label: "What is included?", children: [
+      Text("A useful starting point", {bold: true}),
+      List(["One room for two travelers", "NZ$45 per person per day for food", "NZ$90 total for local transport"]),
+      Text("Flights, activities and insurance are excluded. Adjust the estimate before making plans.", {tone: "muted"}),
+      Text("Your edits stay in this explorer. Hiding it keeps them ready for later.")
+    ]}
+  ], $page)
+]);

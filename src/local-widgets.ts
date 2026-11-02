@@ -11,6 +11,7 @@ export const OPENUI_LOCAL_CLOSE_ENTRY = "openui-local-close";
 export const MAX_LOCAL_WIDGETS = 16;
 type MountResult = { status: "mounted"; widgetId: string } | { status: "error"; error: string };
 interface StoredWidget { version: 1; widgetId: string; source: string; title: string; }
+type HeaderAction = "expand" | "hide" | "restore" | "close";
 // These methods are public on Pi 1.4's TuiMainScreen/TuiAltScreen. The common
 // TUI interface omits the focus getter and viewport operations, so check them.
 type HostTUI = TUI & {
@@ -26,10 +27,11 @@ interface Widget {
   component: Component & { focused: boolean };
   disposed: boolean;
   expanded: boolean;
+  hidden: boolean;
+  hiddenOrder: number;
   theme: HostTheme;
-  closeHit?: { x: number; width: number };
-  expandHit?: { x: number; width: number };
-  headerGesture?: { action: "expand" | "close"; x: number; y: number; cancelled?: boolean };
+  headerHits?: Array<{ action: HeaderAction; x: number; width: number }>;
+  headerGesture?: { action: HeaderAction; x: number; y: number; cancelled?: boolean };
   width?: number;
 }
 // Pi 1.4's matchesKey handles plain F6 but not modified function keys.
@@ -52,11 +54,18 @@ export function createLocalWidgets(pi: ExtensionAPI) {
   let editor: Component | null = null;
   let lastId: string | undefined;
   let unsubscribe: (() => void) | undefined;
+  let hiddenSerial = 0;
   let disposed = false;
   let revealProbe: Widget | undefined;
 
   const focused = () => host?.getFocusedComponent?.() ?? null;
   const owned = (component: Component | null) => [...widgets.values()].find(widget => widget.component === component);
+  const visibleWidgets = () => [...widgets.values()].filter(widget => !widget.hidden);
+  const lastVisible = () => visibleWidgets().find(widget => widget.data.widgetId === lastId) ?? visibleWidgets().at(-1);
+  const lastHidden = () => [...widgets.values()].filter(widget => widget.hidden).sort((a, b) => b.hiddenOrder - a.hiddenOrder)[0];
+  const completions = (prefix: string, accepts: (widget: Widget) => boolean = () => true) => [...widgets.values()]
+    .filter(widget => accepts(widget) && `${widget.data.widgetId} ${widget.data.title}`.toLowerCase().includes(prefix.trim().toLowerCase()))
+    .map(widget => ({ value: widget.data.widgetId, label: widget.data.widgetId, description: `${widget.data.title}${widget.hidden ? " · hidden" : ""}` }));
   function captureEditor(): void {
     const current = focused() as (Component & { getText?: unknown; setText?: unknown }) | null;
     // Pi focuses selector/input/multiline-dialog wrappers, not their nested
@@ -77,16 +86,18 @@ export function createLocalWidgets(pi: ExtensionAPI) {
   }
   function refreshHost(): void {
     if (!context || !widgets.size) return;
+    if (!visibleWidgets().length) { captureEditor(); removeHint(); return; }
     context.ui.setWidget("openui-local-focus", (tui, theme) => {
       host = tui as HostTUI;
       captureEditor();
       return {
         invalidate() {},
         render(width: number) {
-          const active = owned(focused());
+          const visible = visibleWidgets();
+          const active = visible.find(widget => widget.component === focused());
           const text = active ? `${active.data.widgetId} · local only · F6/Esc chat · Shift+F6 next · /openui-close`
-            : `${widgets.size} local widget${widgets.size === 1 ? "" : "s"} · F6 interact · Shift+F6 next · /openui-focus [id]`;
-          return widgets.size ? [truncateToWidth(theme.fg("dim", text), Math.max(0, width), "")] : [];
+            : `${visible.length} local widget${visible.length === 1 ? "" : "s"} · F6 interact · Shift+F6 next · /openui-focus [id]`;
+          return visible.length ? [truncateToWidth(theme.fg("dim", text), Math.max(0, width), "")] : [];
         },
       };
     }, { placement: "belowEditor" });
@@ -116,7 +127,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
   }
   function focus(widget: Widget, scroll = true): boolean {
     refreshHost();
-    if (widget.disposed || !canFocus()) return false;
+    if (widget.disposed || widget.hidden || !canFocus()) return false;
     lastId = widget.data.widgetId;
     host!.setFocus(widget.component);
     if (scroll) reveal(widget);
@@ -128,9 +139,10 @@ export function createLocalWidgets(pi: ExtensionAPI) {
     if (!canFocus()) return;
     const current = owned(focused());
     if (current && !next) { blur(); return; }
-    const all = [...widgets.values()];
+    const all = visibleWidgets();
+    if (!all.length) return;
     const index = all.findIndex(widget => widget.data.widgetId === (current?.data.widgetId ?? lastId));
-    const target = next ? all[(index + 1) % all.length] : widgets.get(lastId ?? "") ?? all.at(-1);
+    const target = next ? all[(index + 1) % all.length] : lastVisible();
     if (target) focus(target);
   }
   function attach(ctx: ExtensionContext): boolean {
@@ -139,7 +151,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
     refreshHost();
     if (!host?.getFocusedComponent) return false;
     if (!unsubscribe) unsubscribe = ctx.ui.onTerminalInput(data => {
-      if (disposed || !widgets.size || isKeyRelease(data)) return;
+      if (disposed || !visibleWidgets().length || isKeyRelease(data)) return;
       if (matchesKey(data, "f6") || cycleKey(data)) {
         refreshHost();
         if (!canFocus()) return;
@@ -148,6 +160,34 @@ export function createLocalWidgets(pi: ExtensionAPI) {
       }
       return undefined;
     });
+    return true;
+  }
+  function hide(widget: Widget): boolean {
+    if (widget.disposed || widget.hidden) return false;
+    if (focused() === widget.component) blur();
+    widget.hidden = true;
+    widget.hiddenOrder = ++hiddenSerial;
+    widget.headerGesture = undefined;
+    refreshHost();
+    requestRender();
+    return true;
+  }
+  function restore(widget: Widget): boolean {
+    if (widget.disposed || !widget.hidden) return false;
+    widget.hidden = false;
+    widget.headerGesture = undefined;
+    if (!focus(widget, false)) {
+      widget.hidden = true;
+      refreshHost();
+      requestRender();
+      return false;
+    }
+    // The transcript grew from a single row. Refresh its public layout before
+    // scrollBy so the old extent/follow-end position cannot hide the restored
+    // widget. This also covers restoring an older placeholder with the mouse.
+    if (host?.mode === "fullscreen") host.renderNow?.();
+    reveal(widget);
+    requestRender();
     return true;
   }
   function remove(id: string, persist: boolean): boolean {
@@ -163,7 +203,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
     if (!widgets.size) {
       unsubscribe?.(); unsubscribe = undefined;
       removeHint();
-    }
+    } else refreshHost();
     requestRender();
     return true;
   }
@@ -175,7 +215,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
         Math.floor((host?.terminal.rows ?? 30) * (widget.expanded ? 3 / 4 : 1 / 2)))),
       requestRender, onDone() {}, onBlur: blur,
     };
-    const widget = { data, model, options, disposed: false, expanded: false, theme: {} } as Widget;
+    const widget = { data, model, options, disposed: false, expanded: false, hidden: false, hiddenOrder: 0, theme: {} } as Widget;
     const toggleExpanded = () => {
       widget.expanded = !widget.expanded;
       widget.headerGesture = undefined;
@@ -191,7 +231,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
       render(width: number) {
         if (widget.disposed || width < 1) {
           widget.width = width;
-          widget.expandHit = widget.closeHit = undefined;
+          widget.headerHits = undefined;
           if (widget.headerGesture) widget.headerGesture.cancelled = true;
           return [];
         }
@@ -201,20 +241,29 @@ export function createLocalWidgets(pi: ExtensionAPI) {
         const style = presentation(() => widget.theme);
         const left = `${data.widgetId} · ${safeText(data.title)}`;
         const label = "[Close]";
-        const expandLabel = width >= 22 ? `[${widget.expanded ? "Collapse" : "Expand"} F2]`
-          : width >= 3 ? `[${widget.expanded ? "−" : "+"}]` : widget.expanded ? "−" : "+";
-        const closeLabel = width >= 11 ? label : width >= 7 ? "[×]" : "";
-        const actions = expandLabel + (closeLabel ? ` ${closeLabel}` : "");
+        const closeLabel = width >= (widget.hidden ? 40 : 30) ? label : width >= (widget.hidden ? 12 : 11) ? "[×]" : "";
+        const controls: Array<{ action: HeaderAction; label: string }> = widget.hidden
+          ? [{ action: "restore", label: width >= 22 ? "[Restore]" : width >= 6 ? "[R]" : "R" }]
+          : [
+            ...(width >= 18 ? [{ action: "expand" as const, label: width >= 50 ? `[${widget.expanded ? "Collapse" : "Expand"} F2]` : `[${widget.expanded ? "−" : "+"}]` }] : []),
+            { action: "hide", label: width >= 30 ? "[Hide]" : width >= 6 ? "[H]" : "H" },
+          ];
+        if (closeLabel) controls.push({ action: "close", label: closeLabel });
+        const actions = controls.map(control => control.label).join(" ");
         const titleWidth = Math.max(0, width - visibleWidth(actions) - 1);
-        const clippedTitle = truncateToWidth(left, titleWidth, "");
+        const title = widget.hidden ? `${safeText(data.title).replace(/\n/g, " ").trim() || "Local explorer"} · hidden · /openui-restore ${data.widgetId}` : left;
+        const clippedTitle = truncateToWidth(title, titleWidth, "");
         const header = clippedTitle + " ".repeat(Math.max(0, width - visibleWidth(clippedTitle) - visibleWidth(actions))) + actions;
-        const actionStart = width - visibleWidth(actions);
-        widget.expandHit = { x: actionStart, width: visibleWidth(expandLabel) };
-        widget.closeHit = closeLabel ? { x: width - visibleWidth(closeLabel), width: visibleWidth(closeLabel) } : undefined;
-        return [truncateToWidth(style.fg(widget.view.focused ? "accent" : "muted", header), width, ""), ...widget.view.render(width)];
+        let actionStart = width - visibleWidth(actions);
+        widget.headerHits = controls.map(control => {
+          const hit = { action: control.action, x: actionStart, width: visibleWidth(control.label) };
+          actionStart += hit.width + 1;
+          return hit;
+        });
+        return [truncateToWidth(style.fg(widget.view.focused ? "accent" : "muted", header), width, ""), ...(widget.hidden ? [] : widget.view.render(width))];
       },
       handleInput(data: string) {
-        if (widget.disposed || focused() !== widget.component) return;
+        if (widget.disposed || widget.hidden || focused() !== widget.component) return;
         if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c") || matchesKey(data, "f6")) { blur(); return; }
         if (cycleKey(data)) { toggle(true); return; }
         if (matchesKey(data, "f2")) { toggleExpanded(); return; }
@@ -230,24 +279,27 @@ export function createLocalWidgets(pi: ExtensionAPI) {
       handleMouse(event: TuiMouseEvent) {
         if (widget.disposed) return undefined;
         const action = event.y === 0 && event.x >= 0 && event.x < (widget.width ?? 0)
-          ? widget.expandHit && event.x >= widget.expandHit.x && event.x < widget.expandHit.x + widget.expandHit.width ? "expand"
-            : widget.closeHit && event.x >= widget.closeHit.x && event.x < widget.closeHit.x + widget.closeHit.width ? "close" : undefined
+          ? widget.headerHits?.find(hit => event.x >= hit.x && event.x < hit.x + hit.width)?.action
           : undefined;
         if (widget.headerGesture && (event.type === "drag" || event.x !== widget.headerGesture.x || event.y !== widget.headerGesture.y)) widget.headerGesture.cancelled = true;
         if (event.type === "press" || event.type === "click") {
-          if (!focus(widget, false)) return undefined;
+          if (widget.hidden) { captureEditor(); if (!canFocus()) return undefined; }
+          else if (!focus(widget, false)) return undefined;
           const gesture = widget.headerGesture;
           widget.headerGesture = undefined;
           if (event.button === "left" && !event.shift && !event.alt && !event.ctrl && action) {
             if (event.type === "press") widget.headerGesture = { action, x: event.x, y: event.y };
             else if (!gesture || (!gesture.cancelled && gesture.action === action)) {
               if (action === "expand") toggleExpanded();
+              else if (action === "hide") hide(widget);
+              else if (action === "restore") restore(widget);
               else remove(widget.data.widgetId, true);
             }
             return { handled: true, render: event.type === "click" };
           }
         }
         if (widget.headerGesture) return { handled: true, render: false };
+        if (widget.hidden) return action ? { handled: true, render: false } : undefined;
         if (event.y === 0) return { handled: true, render: false };
         const result = widget.view.handleMouse({ ...event, y: event.y - 1, height: Math.max(0, event.height - 1) });
         // The manager owns keyboard focus and restores the actual chat editor.
@@ -265,17 +317,40 @@ export function createLocalWidgets(pi: ExtensionAPI) {
     return widget.component;
   });
   pi.registerCommand("openui-focus", {
-    description: "Focus a local OpenUI widget by id, or the most recent widget. F6/Escape returns to chat.",
+    description: "Focus a visible local OpenUI widget by id, or the most recent visible widget. F6/Escape returns to chat.",
+    getArgumentCompletions: prefix => completions(prefix, widget => !widget.hidden),
     async handler(args, ctx) {
       if (!widgets.size) { ctx.ui.notify("No local OpenUI widgets are open.", "info"); return; }
       attach(ctx);
-      const widget = widgets.get(args.trim() || lastId || "");
+      const widget = args.trim() ? widgets.get(args.trim()) : lastVisible();
+      if (!widget && widgets.size && !visibleWidgets().length) { ctx.ui.notify("All local OpenUI widgets are hidden. Use /openui-restore [id].", "info"); return; }
       if (!widget) { ctx.ui.notify("Unknown OpenUI widget id.", "error"); return; }
+      if (widget.hidden) { ctx.ui.notify(`Widget hidden. Use /openui-restore ${widget.data.widgetId}.`, "info"); return; }
       if (!focus(widget)) ctx.ui.notify("Return to the chat editor before focusing a local widget.", "info");
+    },
+  });
+  pi.registerCommand("openui-hide", {
+    description: "Hide a local widget to one line while retaining its live state. Defaults to the most recent visible widget.",
+    getArgumentCompletions: prefix => completions(prefix, widget => !widget.hidden),
+    async handler(args, ctx) {
+      attach(ctx);
+      const widget = args.trim() ? widgets.get(args.trim()) : owned(focused()) ?? lastVisible();
+      if (!widget || !hide(widget)) ctx.ui.notify("No matching visible local OpenUI widget is open.", "info");
+    },
+  });
+  pi.registerCommand("openui-restore", {
+    description: "Restore and focus a hidden local widget with its live state. Defaults to the most recently hidden widget.",
+    getArgumentCompletions: prefix => completions(prefix, widget => widget.hidden),
+    async handler(args, ctx) {
+      attach(ctx);
+      const widget = args.trim() ? widgets.get(args.trim()) : lastHidden();
+      if (!widget?.hidden) { ctx.ui.notify("No matching hidden local OpenUI widget is open.", "info"); return; }
+      if (!restore(widget)) ctx.ui.notify("Return to the chat editor before restoring a local widget.", "info");
     },
   });
   pi.registerCommand("openui-close", {
     description: "Dismiss a local OpenUI widget without submitting values. Accepts a widget id; defaults to the last widget.",
+    getArgumentCompletions: prefix => completions(prefix),
     async handler(args, ctx) {
       const id = args.trim() || owned(focused())?.data.widgetId || lastId || "";
       if (!remove(id, true)) ctx.ui.notify("No matching local OpenUI widget is open.", "info");
@@ -287,7 +362,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
     unsubscribe?.(); unsubscribe = undefined;
     for (const id of [...widgets.keys()]) remove(id, false);
     removeHint();
-    context = undefined; host = undefined; editor = null; lastId = undefined;
+    context = undefined; host = undefined; editor = null; lastId = undefined; hiddenSerial = 0;
   }
   return {
     mount(toolCallId: string, source: string, title: string | undefined, ctx: ExtensionContext): MountResult {

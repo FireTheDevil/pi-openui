@@ -30,6 +30,8 @@ Removing a Submit button does **not** make a default form nonblocking. Use local
 - For a display with no decision to collect, use Text, Markdown, Table, List, CodeBlock or other display components without a Button or field. An inline display returns `status: "displayed"`; it is neither a user choice nor approval. Use normal prose when it communicates the same information more simply.
 - The catalog still defines the available content. Requesting fullscreen does not add chart, Mermaid, flow-diagram or browser components. Use a supported textual representation or an appropriate artifact tool for those formats.
 
+Local widgets also provide Hide beside Close. Hide retains live edits and navigation in a one-line Restore placeholder; Restore resumes the same widget, while Close discards it permanently. Hidden widgets leave the status hint and normal focus cycle. Keyboard users can run `/openui-hide [id]` or `/openui-restore [id]`, with ID/title argument completion; restore without an ID selects the most recently hidden widget. These are host presentation controls: do not add generated Hide/Restore buttons or unsupported actions to the OpenUI document.
+
 The [presentation guide](../../docs/inline-ui.md) covers static displays and answer collection. The [local interaction guide](../../docs/local-interaction.md) covers persistent widgets, focus, lifecycle and a hosting-cost explorer.
 
 Choose an interaction pattern before selecting components:
@@ -204,9 +206,9 @@ root = Stack([
 ]);
 ```
 
-A successful return is `{status: "mounted", widgetId: "..."}`. It contains no selected worker count. F6 moves between chat and the widget; Shift+F6 selects another widget. `/openui-focus [id]` selects one explicitly, and `/openui-close [id]` dismisses it without sending values. Focus changes, expansion/collapse, Reset, dismissal and subsequent chat never submit an answer. Local mode rejects fullscreen, ToAssistant, legacy string submissions and unsupported external actions.
+A successful return is `{status: "mounted", widgetId: "..."}`. It contains no selected worker count. F6 moves between chat and the widget; Shift+F6 selects another widget. `/openui-focus [id]` selects one explicitly, and `/openui-close [id]` dismisses it without sending values. Focus changes, expansion/collapse, Hide/Restore, Reset, dismissal and subsequent chat never submit an answer. Local mode rejects fullscreen, ToAssistant, legacy string submissions and unsupported external actions.
 
-Live state stays with its widget across ordinary turns. Session navigation or shutdown disposes that state and input handlers; restoring a session or replaying a branch reconstructs still-open widgets from their original source/defaults in compact mode. Explicitly dismissed widgets stay closed. Edited values, cursor state and each widget's expansion state are not persisted. Pi compaction disposes widgets whose transcript rows are removed; widgets still in the visible branch retain live state. At most 16 widgets can remain active. If the task needs a durable final choice for the agent, use a separate collect-mode form and let the user supply it explicitly.
+Live state stays with its widget across ordinary turns. Session navigation or shutdown disposes that state and input handlers; restoring a session or replaying a branch reconstructs still-open widgets from their original source/defaults, visible and compact. Explicitly dismissed widgets stay closed. Edited values, cursor state and each widget's expansion/hidden state are not persisted. Pi compaction disposes widgets whose transcript rows are removed; widgets still in the visible branch retain live state. At most 16 widgets can remain active, including hidden widgets; Hide does not free a slot. If the task needs a durable final choice for the agent, use a separate collect-mode form and let the user supply it explicitly.
 
 ## Code and notebook execution
 

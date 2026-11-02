@@ -2,6 +2,16 @@
 
 Recorded release checks and their scope. These results do not guarantee behavior with every model or environment.
 
+## Issue #11 — hide and restore local widgets (2026-11-03)
+
+The `feat/local-widget-hide` branch passed type checking and all 236 existing core tests on Linux with Node 24.19.0 and the Pi 1.4.0 development baseline. An ad hoc component check covered 44 visible/hidden width cases from 1–120 columns, one-line placeholders, command completion and restore order, visible-only focus cycling/status, permanent Close, replay defaults and reacquisition of a replacement composer while all widgets were hidden. No new unit tests were added.
+
+Actual fullscreen CLI checks passed on Pi 1.4.0 in dark and light themes and Pi 1.5.0 in the dark theme. Mouse and command Hide/Restore preserved edited values, text drafts/cursors, tabs/steps, expanded height and internal scroll position. Checks covered older widgets, independent placeholders, restore without an ID, hidden-widget focus hints, normal chat with every widget hidden, narrow 36-column layouts, cancelled mouse drags, permanent dismissal of hidden widgets, replay to visible/compact defaults and a subsequent static UI call. Hide/Restore emitted no additional tool/provider calls or edited values.
+
+Live testing found that restoring an older expanded widget could focus it while Pi's stale transcript extent kept it offscreen. Restore now refreshes the host's public layout before revealing the widget; command and mouse restoration both passed afterward. The replacement-editor case also passed after all status rows had been removed.
+
+These checks used fresh model-authored OpenUI documents dispatched through a deterministic provider and actual PTY keyboard/mouse input. No external LLM calls were made. They verify runtime behavior rather than external-model UI-generation quality. The native-code/conversion notebook CLI matrix and clean tarball installation were not repeated; earlier results retain their original scope. Hide retains live state only: session reload/replay still restores original values, visible and compact, as described in the [hide and restore guide](local-interaction.md#hide-and-restore).
+
 ## Issue #6 — inline local-widget expansion (2026-11-03)
 
 The `feat/local-widget-expansion` branch passed type checking and all 236 existing core tests on Linux with Node 24.19.0 and the Pi 1.4.0 development baseline. An ad hoc component check covered 70 viewport-size combinations from 1–100 columns and 5–80 terminal rows, header mouse targets, drag cancellation, overflow feedback, paging and collapse after scrolling. No new unit tests were added.

@@ -29,15 +29,27 @@ Mounting never steals keyboard focus. The widget header and status hint identify
 | Action | Shortcut or command |
 | --- | --- |
 | Move between chat and the last selected widget | F6 |
-| Select the next local widget | Shift+F6 |
+| Select the next visible local widget | Shift+F6 |
 | Select a widget explicitly | `/openui-focus [id]` |
 | Return from a focused widget to chat | F6, Escape or Ctrl+C |
 | Expand or collapse a local widget within the transcript | F2 while focused, or its Expand/Collapse header button with mouse input |
-| Dismiss a widget without sending its values | `/openui-close [id]`, or its Close header button with mouse input |
+| Hide a widget while retaining its live state | `/openui-hide [id]`, or Hide beside Close |
+| Restore and focus a hidden widget | `/openui-restore [id]`, or its Restore placeholder button |
+| Permanently dismiss a visible or hidden widget without sending its values | `/openui-close [id]`, or its Close button with mouse input |
 
 Within a focused widget, the existing component keys apply: Tab/Shift+Tab changes controls, arrows navigate, Enter/Space activates buttons, and Ctrl+Page Up/Down pages its content. Plain Page Up/Down also works in the regular host; the fullscreen host reserves those unmodified keys for the surrounding transcript. Escape/Ctrl+C returns focus to chat; it does not cancel a running notebook or submit/dismiss the widget. Once chat has focus, normal typing and sending belong to Pi.
 
 Pi's fullscreen host supports mouse interaction in transcript widgets. Regular host mode uses keyboard interaction and leaves mouse handling to the terminal. In the regular host, scroll the terminal manually to see an older widget before editing it; focus transfer cannot move the terminal's scrollback. The fullscreen host can reveal its transcript row when focus changes. A widget's own viewport and wrapping adapt on resize. Return focus to chat before using unrelated dialogs or normal chat input.
+
+## Hide and restore
+
+Hide replaces a widget with one transcript line identifying it and offering Restore and Close. Its model and view stay alive: edited values, text drafts, active tabs/steps, useful scroll position and expanded/compact height are retained. Restoring brings back that same view and focuses it. Close permanently disposes the widget and its retained state; it cannot be restored.
+
+Narrow layouts shorten Hide, Restore and Close to `[H]`, `[R]` and `[×]`; at very small widths only the primary action fits. The commands remain available at every width.
+
+Hiding a focused widget returns keyboard focus to chat. Hidden widgets are excluded from the status hint and from F6/Shift+F6 cycling. When every widget is hidden, the local-widget status hint disappears. The placeholders remain in the transcript, with mouse Restore where Pi supports it. For keyboard access, return to chat and run `/openui-restore [id]`; without an ID it restores the most recently hidden widget. Command argument completion lists matching widget IDs and titles. `/openui-hide` without an ID hides the selected visible widget, or the most recent visible widget. Multiple widgets can be hidden and restored independently.
+
+Hide/Restore is separate from F2 expansion: it removes the content viewport entirely instead of choosing a different visible height. Neither action submits a value, invokes a tool or starts a model turn. Hidden state lasts only in the live session. Reload or session replay restores the original defaults, visible and compact; hidden state and edited values are not persisted. Explicitly closed widgets remain closed.
 
 ## Height and overflow
 
@@ -66,14 +78,14 @@ The adapter also bounds static reference expansion to 16,384 syntax nodes before
 
 ## Lifecycle
 
-- Each mounted widget owns its model, draft values, focus, local navigation and expansion state. Multiple widgets keep independent state.
+- Each mounted widget owns its model, draft values, focus, local navigation, expansion and hidden state. Multiple widgets keep independent state, including while hidden.
 - Ordinary agent turns, tool completion and later chat leave the widgets active. A finished tool call's AbortSignal no longer owns the widget.
 - Explicit dismissal disposes the widget and its model. Session navigation/replacement and shutdown release live state and input handlers.
-- The session records original source/title and explicit dismissal markers for presentation, outside the model's message context. Edited values, cursor position, local navigation and expansion state are not saved.
-- Reopening a session or replaying a branch reconstructs still-open widgets from their original defaults in compact mode; explicitly dismissed widgets stay closed. Do not rely on an exploratory edit as a durable saved answer.
+- The session records original source/title and explicit dismissal markers for presentation, outside the model's message context. Edited values, cursor position, local navigation, expansion and hidden state are not saved.
+- Reopening a session or replaying a branch reconstructs still-open widgets from their original defaults, visible and compact; explicitly dismissed widgets stay closed. Do not rely on an exploratory edit as a durable saved answer.
 - Widgets follow the visible current session branch; unrelated branches do not share live state. When Pi compacts away an older widget's transcript row, its live widget is disposed. Widgets whose rows remain visible retain their current state. Dismissal, navigation and compaction are presentation lifecycle events, not submission events.
 
-At most 16 local widgets may be active. A new mount beyond that limit returns diagnostics; close an unused widget before mounting another. Replay restores at most the 16 most recent still-open widgets. Older/unavailable entries show a historical placeholder rather than implying live interaction.
+At most 16 local widgets may be active, including hidden widgets that retain live state. A new mount beyond that limit returns diagnostics; close an unused widget before mounting another. Hiding a widget does not free its slot. Replay restores at most the 16 most recent still-open widgets. Older/unavailable entries show a historical placeholder rather than implying live interaction.
 
 ## Hosting-cost explorer
 
