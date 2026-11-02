@@ -1,4 +1,4 @@
-# Pi OpenUI TUI
+# Pi OpenUI
 
 An OpenUI Lang extension for **Pi 1.4+**, using `@openuidev/lang-core` 1.0.2 and Pi's host-provided `@earendil-works/pi-tui`. No React, browser, webview, or separate terminal loop.
 
