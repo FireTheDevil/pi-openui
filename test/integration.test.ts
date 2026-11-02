@@ -16,6 +16,7 @@ function host(mode = "tui") {
   let component: OpenUIView | undefined;
   let opens = 0;
   let closes = 0;
+  let aborts = 0;
   let customOptions: unknown;
   const api = {
     registerToolRenderer() {},
@@ -33,6 +34,7 @@ function host(mode = "tui") {
     mode,
     hasUI: mode === "tui" || mode === "rpc",
     signal: undefined,
+    abort() { aborts++; },
     ui: {
       notify: (message: string) => notices.push(message),
       custom: (factory: Function, options: unknown) => {
@@ -56,11 +58,12 @@ function host(mode = "tui") {
     events, tools, commands, sent, notices, ctx,
     get opens() { return opens; },
     get closes() { return closes; },
+    get aborts() { return aborts; },
     get customOptions() { return customOptions; },
     key(data: string) { assert.ok(component); component.render(80); component.handleInput(data); },
     render() { assert.ok(component); return component.render(80).join("\n"); },
-    execute(source: string, id = "call-1", signal?: AbortSignal) {
-      return tools.get("show_ui").execute(id, { source }, signal, undefined, ctx);
+    execute(source: string, id = "call-1", signal?: AbortSignal, presentation?: "inline" | "fullscreen") {
+      return tools.get("show_ui").execute(id, { source, presentation }, signal, undefined, ctx);
     },
     stream(source: string, id = "call-1") {
       events.get("message_update")!({
@@ -87,11 +90,8 @@ test("registers the tool, command and generated prompt only in TUI mode", () => 
 test("show_ui returns a submitted action to the active tool call", async () => {
   const h = host();
   const result = h.execute('root = Stack([Button("Continue", "continue")]);');
-  assert.deepEqual(h.customOptions, {
-    overlay: true,
-    overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 },
-  });
-  assert.equal(h.render().split("\n").length, 30);
+  assert.equal(h.customOptions, undefined);
+  assert.ok(h.render().split("\n").length < 15);
   h.key("\r");
   const value = await result;
   assert.equal(value.details.status, "submitted");
@@ -99,6 +99,104 @@ test("show_ui returns a submitted action to the active tool call", async () => {
   assert.equal(h.opens, 1);
   assert.equal(h.closes, 1);
   assert.equal(h.sent.length, 0);
+});
+
+test("display-only documents render inline without opening or waiting for a dialog", async () => {
+  const h = host();
+  const source = 'root = Stack([Text("Build results"), Table(["Check", "Result"], [["Types", "Passed"]])]);';
+  h.stream(source);
+  assert.equal(h.opens, 0, "display streaming must not take keyboard focus");
+  const result = await h.execute(source);
+  assert.deepEqual(result.structuredContent, { status: "displayed" });
+  assert.equal(result.details.openuiDocument.source, source);
+  const theme = { fg: (_: string, value: string) => value, bold: (value: string) => value };
+  const rendered = h.tools.get("show_ui").renderResult(result, { isPartial: false, expanded: false }, theme, {}).render(80).join("\n");
+  assert.match(rendered, /Build results/);
+  assert.match(rendered, /Types.*Passed/);
+  assert.doesNotMatch(rendered, /Submitted|Esc cancel|Enter activate/);
+  assert.equal(h.opens, 0);
+  assert.equal(h.aborts, 0);
+});
+
+test("fullscreen display inspection closes with Enter and persists inline content", async () => {
+  const h = host();
+  const pending = h.execute('root = Stack([Text("Inspect this")]);', "inspect", undefined, "fullscreen");
+  assert.deepEqual(h.customOptions, { overlay: true,
+    overlayOptions: { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 } });
+  assert.match(h.render(), /Enter close/);
+  h.key("\r");
+  const result = await pending;
+  assert.equal(result.structuredContent.status, "displayed");
+  assert.ok(result.details.openuiDocument);
+  assert.equal(h.aborts, 0);
+});
+
+test("F2 remounts the same editable form without losing its draft or cancelling", async () => {
+  const h = host();
+  const pending = h.execute('root = Stack([Input("name", "Name", ""), Button("Send", "send")]);');
+  h.key("Ada");
+  h.key("\x1bOQ");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.opens, 2);
+  assert.equal((h.customOptions as unknown as { overlay: boolean }).overlay, true);
+  assert.equal(h.render().split("\n").length, 30);
+  assert.match(h.render(), /Ada/);
+  h.key(" Lovelace");
+  h.key("\x1bOQ");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.customOptions, undefined);
+  h.key("\t"); h.key("\r");
+  assert.deepEqual((await pending).structuredContent.values, { name: "Ada Lovelace" });
+  assert.equal(h.opens, 3);
+  assert.equal(h.closes, 3);
+  assert.equal(h.aborts, 0);
+});
+
+test("a fullscreen argument arriving after streamed source reconciles the mounted preview", async () => {
+  const h = host();
+  const source = 'root = Stack([Input("name", "Name", "Ada"), Button("Send", "send")]);';
+  h.stream(source);
+  assert.equal(h.customOptions, undefined);
+  assert.equal(h.opens, 1);
+  const pending = h.execute(source, "call-1", undefined, "fullscreen");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.opens, 2);
+  assert.equal((h.customOptions as unknown as { overlay: boolean }).overlay, true);
+  assert.equal(h.render().split("\n").length, 30);
+  h.key("\x05"); h.key(" Lovelace"); h.key("\t"); h.key("\r");
+  assert.deepEqual((await pending).structuredContent.values, { name: "Ada Lovelace" });
+  assert.equal(h.aborts, 0);
+});
+
+test("a user's F2 preview choice takes precedence over the final presentation argument", async () => {
+  const h = host();
+  const source = 'root = Stack([Button("Send", "send")]);';
+  h.stream(source);
+  h.key("\x1bOQ");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal((h.customOptions as unknown as { overlay: boolean }).overlay, true);
+  const pending = h.execute(source, "call-1", undefined, "inline");
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(h.opens, 2, "the completed request must not undo a user's expansion");
+  assert.equal((h.customOptions as unknown as { overlay: boolean }).overlay, true);
+  h.key("\r");
+  assert.equal((await pending).structuredContent.status, "submitted");
+  assert.equal(h.aborts, 0);
+});
+
+test("user cancellation aborts the active run before the waiting caller resumes", async () => {
+  const h = host();
+  const pending = h.execute('root = Stack([Button("Send", "send")]);');
+  let resumed = false;
+  const checked = pending.then((result: {structuredContent: {status:string}}) => {
+    resumed = true;
+    assert.equal(h.aborts, 1);
+    assert.equal(result.structuredContent.status, "cancelled");
+  });
+  h.key("\x03");
+  assert.equal(h.aborts, 1);
+  assert.equal(resumed, false);
+  await checked;
 });
 
 test("invalid source returns actionable diagnostics without opening a panel", async () => {
@@ -131,6 +229,7 @@ test("AbortSignal and Escape cancel the panel exactly once", async () => {
   h.key("\x1b");
   assert.equal((await next).details.status, "cancelled");
   assert.equal(h.closes, 2);
+  assert.equal(h.aborts, 1, "only user cancellation aborts the active run");
 });
 
 test("partial arguments reuse one custom UI and cannot submit before execute", async () => {
@@ -149,7 +248,7 @@ test("partial arguments reuse one custom UI and cannot submit before execute", a
 test("cancelling a streaming preview prevents reopening on execution", async () => {
   const h = host();
   const source = 'root = Stack([Button("Send", "send")]);';
-  h.stream(source.slice(0, 20));
+  h.stream(source);
   h.key("\x1b");
   h.stream(source);
   assert.equal((await h.execute(source)).details.status, "cancelled");
@@ -158,7 +257,7 @@ test("cancelling a streaming preview prevents reopening on execution", async () 
 
 test("a malformed final document closes the preview and reports an error", async () => {
   const h = host();
-  h.stream('root = Text("hello');
+  h.stream('root = Stack([Button("Send", "send")]);');
   const result = await h.execute('root = Unknown("hello");');
   assert.equal(result.isError, true);
   assert.equal(h.closes, 1);
@@ -167,7 +266,7 @@ test("a malformed final document closes the preview and reports an error", async
 test("shutdown and interrupted generation release previews", async () => {
   for (const event of ["session_shutdown", "agent_end"]) {
     const h = host();
-    h.stream('root = Text("hello');
+    h.stream('root = Stack([Button("Send", "send")]);');
     h.events.get(event)!({}, h.ctx);
     await Promise.resolve();
     assert.equal(h.closes, 1);
@@ -259,7 +358,7 @@ test("an already aborted demo does not start an interval", async (t) => {
 
 test("a rejected tool call closes its preview so a same-run retry can open", async () => {
   const h = host();
-  h.stream("");
+  h.stream('root = Stack([Button("Send", "send")]);');
   h.events.get("tool_execution_end")!({ toolName: "show_ui", toolCallId: "call-1", isError: true }, h.ctx);
   assert.equal(h.closes, 1);
   const result = h.execute('root = Stack([Button("Retry", "retry")]);', "retry");

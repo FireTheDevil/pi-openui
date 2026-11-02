@@ -26,7 +26,7 @@ function host() {
     sendMessage: (message: {content:string}) => sent.push(message.content),
   } as unknown as ExtensionAPI;
   const ctx = {
-    mode: "tui", hasUI: true,
+    mode: "tui", hasUI: true, abort() {},
     ui: {
       notify: (message: string) => { throw new Error(message); },
       custom: (factory: Function) => new Promise(resolve => {
@@ -52,12 +52,12 @@ function host() {
   return {
     sent, lines, click, get closed() { return closed; },
     key(data: string) { lines(); view.handleInput(data); },
-    command(args: string) { return commands.get("openui-demo").handler(args, ctx); },
-    execute(source = ACTIONS_DEMO_SOURCE) { return tools.get("show_ui").execute("actions", { source }, undefined, undefined, ctx); },
+    command(args: string) { return commands.get("openui-demo").handler(args + " --fullscreen", ctx); },
+    execute(source = ACTIONS_DEMO_SOURCE) { return tools.get("show_ui").execute("actions", { source, presentation: "fullscreen" }, undefined, undefined, ctx); },
     stream() {
       handlers.get("message_update")!({ assistantMessageEvent: {
         type: "toolcall_delta", contentIndex: 0, delta: "",
-        partial: { content: [{ type: "toolCall", id: "actions", name: "show_ui", arguments: { source: ACTIONS_DEMO_SOURCE } }] },
+        partial: { content: [{ type: "toolCall", id: "actions", name: "show_ui", arguments: { source: ACTIONS_DEMO_SOURCE, presentation: "fullscreen" } }] },
       } }, ctx);
     },
   };

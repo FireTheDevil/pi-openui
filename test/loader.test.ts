@@ -12,6 +12,12 @@ test("Pi's actual loader resolves TypeScript siblings and shares its native TUI"
     import { discoverAndLoadExtensions } from "@earendil-works/pi-coding-agent";
     import { Input } from "@earendil-works/pi-tui";
     const emptyAgentDir = await mkdtemp(join(tmpdir(), "pi-openui-loader-"));
+    const nativeRender = Input.prototype.render;
+    let renderedInput;
+    Input.prototype.render = function(width) {
+      renderedInput = this;
+      return nativeRender.call(this, width);
+    };
     try {
       const loaded = await discoverAndLoadExtensions([resolve("src/index.ts")], process.cwd(), emptyAgentDir);
       assert.deepEqual(loaded.errors, []);
@@ -29,8 +35,9 @@ test("Pi's actual loader resolves TypeScript siblings and shares its native TUI"
       }};
       const source = 'root = Stack([Input("note", "Note", ""), Button("Send", "send")]);';
       const pending = tool.execute("loader", { source }, undefined, undefined, ctx);
-      assert.ok(view.controls[0].widget.native instanceof Input, "must use host Pi Input constructor");
       view.render(60);
+      assert.ok(renderedInput instanceof Input, "rendering must call the host Pi Input prototype");
+      assert.equal(renderedInput.constructor, Input, "must use host Pi Input constructor");
       view.handleInput("hello");
       view.handleInput("\\t");
       view.handleInput("\\r");
@@ -38,6 +45,7 @@ test("Pi's actual loader resolves TypeScript siblings and shares its native TUI"
       assert.equal(result.details.status, "submitted");
       assert.equal(result.details.values.note, "hello");
     } finally {
+      Input.prototype.render = nativeRender;
       await rm(emptyAgentDir, { recursive: true, force: true });
     }
   `;

@@ -2,6 +2,8 @@
 
 Run `pi --tui-mode fullscreen -e ./src/index.ts`, then `/openui-demo --actions`.
 
+The demo now opens inline. Press F2 to expand it, or start with `/openui-demo --actions --fullscreen`. The captures below show the earlier fullscreen layout; the same local actions work in either presentation.
+
 These images capture the actual Pi 1.4.0 CLI in a POSIX PTY. The unchanged terminal output was replayed into xterm.js for screenshots. Browser tooling was used only to capture images; the extension renders through Pi's native TUI. A deterministic local provider verified session delivery without calling an external LLM.
 
 ## Initial components
@@ -28,4 +30,4 @@ After reset, the test enters a new note, increments the counter, marks the plan 
 
 ![Action delivered to the active Pi session](screenshots/actions-submitted.png)
 
-Streaming remains read-only until completion. Unsupported actions and invalid resulting state produce an inline error; failed plans leave the original state intact. Escape cancels without submitting.
+Streaming remains read-only until completion. Unsupported actions and invalid resulting state produce an inline error; failed plans leave the original state intact. Escape cancels without submitting and aborts an active run; it does not let a waiting script continue with default choices.

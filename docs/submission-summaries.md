@@ -12,6 +12,8 @@ text(result);
 
 The receipt uses the form's labels and rich option labels, not internal variable names. Field selection only changes the display. Numbers, booleans, arrays, hidden fields and internal state remain in the machine result. Cancellation and errors have their own receipt status. “Submitted” means input was received; it does not assert that any requested work has been executed.
 
+Forms now open inline by default, with F2 available to expand them. A display-only inline document has no submission to summarize: its actual content remains in the transcript and the tool returns `status: "displayed"`. See [inline presentation](inline-ui.md). The screenshots below show the receipt feature's original v0.5.0 verification; they are not captures of the newer inline interaction layout.
+
 ## Native code mode
 
 The receipt appears as a separate transcript entry below the execution block. A completed OpenUI-only script has a compact execution display; expand details to see its original code and output. The receipt itself also expands to show the full structured result. Mixed scripts retain their other calls and output.
@@ -34,6 +36,6 @@ The bundled [openui skill](../skills/openui/SKILL.md) teaches component selectio
 
 ## Verification
 
-All four actual Pi 1.4.0 fullscreen runs passed: dark and light themes, each with direct tools and native code-only mode. Checks covered readable field/option labels, full typed provider results, expansion, narrow resizing, cancellation, malformed input, demo delivery, skill discovery, mixed script output, and reopening a session with its receipt intact. Native code-only mode exposed only `codemode` to the provider while retaining nested `show_ui` and `read` access.
+For v0.5.0, all four actual Pi 1.4.0 fullscreen runs passed: dark and light themes, each with direct tools and native code-only mode. Checks covered readable field/option labels, full typed provider results, expansion, narrow resizing, cancellation, malformed input, demo delivery, skill discovery, mixed script output, and reopening a session with its receipt intact. Native code-only mode exposed only `codemode` to the provider while retaining nested `show_ui` and `read` access. The newer inline and abort-before-continuation checks are documented separately in [inline presentation](inline-ui.md).
 
 The captures replay unmodified PTY output. A deterministic local provider verified the received data; no external model provider was used. Browser tooling was used only by the external screenshot harness and is not a dependency of the extension.

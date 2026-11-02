@@ -7,10 +7,10 @@ import { presentation, safeText, type HostTheme, type PresentationStyle } from "
 import type { UIResult } from "./view.js";
 
 export interface SummaryOptions { title?: string; fields?: string[]; }
-export type SummaryOutcome = UIResult | { status: "error"; error: string };
+export type SummaryOutcome = UIResult | { status: "displayed" } | { status: "error"; error: string };
 export interface Receipt {
   version: 1;
-  status: "submitted" | "cancelled" | "error";
+  status: "submitted" | "displayed" | "cancelled" | "error";
   title: string;
   fields: Array<{ name: string; label: string; value: string }>;
   message?: string;
@@ -20,7 +20,7 @@ export interface Receipt {
 const record = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 export function isSummaryOutcome(value: unknown): value is SummaryOutcome {
   if (!record(value)) return false;
-  if (value.status === "cancelled") return true;
+  if (value.status === "cancelled" || value.status === "displayed") return true;
   if (value.status === "error") return typeof value.error === "string";
   if (value.status !== "submitted" || typeof value.action !== "string" || !record(value.state) || !record(value.values)
     || value.message !== undefined && typeof value.message !== "string") return false;
@@ -29,7 +29,7 @@ export function isSummaryOutcome(value: unknown): value is SummaryOutcome {
 }
 
 export function isReceipt(value: unknown): value is Receipt {
-  return record(value) && value.version === 1 && ["submitted", "cancelled", "error"].includes(String(value.status))
+  return record(value) && value.version === 1 && ["submitted", "displayed", "cancelled", "error"].includes(String(value.status))
     && typeof value.title === "string" && Array.isArray(value.fields) && value.fields.length <= 256
     && value.fields.every(field => record(field) && [field.name, field.label, field.value].every(item => typeof item === "string"))
     && (value.message === undefined || typeof value.message === "string")
@@ -60,7 +60,7 @@ function fieldText(value: FieldValue, node?: ElementNode): string {
 /** Snapshot only display metadata; the structured outcome remains untouched. */
 export function createReceipt(outcome: SummaryOutcome, model?: DocumentModel, options?: SummaryOptions): Receipt {
   const receipt: Receipt = { version: 1, status: outcome.status, title: titleOf(options), fields: [] };
-  if (outcome.status === "cancelled") return receipt;
+  if (outcome.status === "cancelled" || outcome.status === "displayed") return receipt;
   if (outcome.status === "error") { receipt.error = safeText(outcome.error); return receipt; }
   if (outcome.message) receipt.message = safeText(outcome.message);
 
@@ -115,6 +115,7 @@ class ReceiptComponent implements Component {
     const lines: string[] = [];
     const status: Record<Receipt["status"], { icon: string; label: string; tone: ThemeColor }> = {
       submitted: { icon: "✓", label: "Submitted", tone: "success" },
+      displayed: { icon: "●", label: "Displayed", tone: "accent" },
       cancelled: { icon: "⊘", label: "Cancelled", tone: "muted" },
       error: { icon: "✗", label: "Error", tone: "error" },
     };
@@ -130,6 +131,8 @@ class ReceiptComponent implements Component {
 
     if (receipt.status === "cancelled") {
       add("No response was submitted.", "muted", expanded ? Infinity : 2);
+    } else if (receipt.status === "displayed") {
+      add("Document shown inline. No response was requested.", "muted", expanded ? Infinity : 2);
     } else if (receipt.status === "error") {
       add(receipt.error || "The form could not be completed.", "error", expanded ? Infinity : 3);
     } else {
