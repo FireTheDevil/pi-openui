@@ -50,6 +50,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
   let lastId: string | undefined;
   let unsubscribe: (() => void) | undefined;
   let disposed = false;
+  let revealProbe: Widget | undefined;
 
   const focused = () => host?.getFocusedComponent?.() ?? null;
   const owned = (component: Component | null) => [...widgets.values()].find(widget => widget.component === component);
@@ -95,12 +96,20 @@ export function createLocalWidgets(pi: ExtensionAPI) {
     // Pi keeps its document in the public child tree even in fullscreen mode.
     // The fullscreen layout root's render() can omit its flex-sized transcript;
     // render the containing document child at its actual last rendered width.
-    const prefix = `${widget.data.widgetId} · `;
-    for (const child of host.children ?? []) {
-      const lines = child.render(Math.max(1, widget.width ?? host.terminal.columns));
-      const row = lines.findIndex(line => stripTerminalSequences(line).startsWith(prefix));
-      if (row >= 0) { host.scrollBy(row - host.viewportTop); break; }
-    }
+    // Probe with a unique header only in these synchronous render results.
+    // Visible headers can repeat or be truncated, so they cannot identify a
+    // widget reliably. No marker is rendered to the terminal or persisted.
+    const marker = `OpenUI focus probe: ${widget.data.widgetId}`;
+    let targetRow: number | undefined;
+    revealProbe = widget;
+    try {
+      for (const child of host.children ?? []) {
+        const lines = child.render(Math.max(1, widget.width ?? host.terminal.columns));
+        const row = lines.findIndex(line => stripTerminalSequences(line) === marker);
+        if (row >= 0) { targetRow = row; break; }
+      }
+    } finally { revealProbe = undefined; }
+    if (targetRow !== undefined) host.scrollBy(targetRow - host.viewportTop);
   }
   function focus(widget: Widget, scroll = true): boolean {
     refreshHost();
@@ -161,6 +170,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
       interaction: "local", title: data.title, theme: {}, fillHeight: false, surface: "inline",
       getHeight: () => Math.max(5, Math.min(18, Math.floor((host?.terminal.rows ?? 30) / 2))),
       requestRender, onDone() {}, onBlur: blur,
+      showHeading: false,
     };
     const widget = { data, model, options, disposed: false, theme: {} } as Widget;
     widget.view = new OpenUIView(model, options);
@@ -172,8 +182,9 @@ export function createLocalWidgets(pi: ExtensionAPI) {
       render(width: number) {
         if (widget.disposed || width < 1) return [];
         widget.width = width;
+        if (revealProbe === widget) return [`OpenUI focus probe: ${data.widgetId}`, ...widget.view.render(width)];
         const style = presentation(() => widget.theme);
-        const left = `${data.widgetId} · ${safeText(data.title)}`;
+        const left = safeText(data.title).trim() || "Local explorer";
         const label = "[Close]";
         const gap = Math.max(1, width - visibleWidth(left) - label.length);
         const header = truncateToWidth(left, Math.max(0, width - label.length - 1), "") + " ".repeat(Math.min(gap, Math.max(0, width - label.length))) + label;
@@ -249,7 +260,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
         ? { status: "mounted", widgetId }
         : { status: "error", error: "This tool call already owns a different local document. Use a new call to mount another widget." };
       if (widgets.size >= MAX_LOCAL_WIDGETS) return { status: "error", error: `At most ${MAX_LOCAL_WIDGETS} local widgets may remain open. Use /openui-close <id> before mounting another.` };
-      const data: StoredWidget = { version: 1, widgetId, source, title: safeText(title || "Local explorer").replace(/\n/g, " ").slice(0, 160) };
+      const data: StoredWidget = { version: 1, widgetId, source, title: safeText(title ?? "").replace(/\n/g, " ").trim().slice(0, 160) || "Local explorer" };
       const widget = create(data);
       if (!widget.model.valid) {
         const error = widget.model.diagnostics.join("\n") || "Invalid local OpenUI document.";

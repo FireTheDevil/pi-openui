@@ -49,6 +49,7 @@ Choose an interaction pattern before selecting components:
 - Use available tools to gather relevant facts missing from context before opening the panel. Use supplied or verified data, preserve units and time ranges, and label assumptions or illustrative numbers. Do not invent availability, prices, measured progress or completed actions.
 - Reuse known preferences and prior answers. Ask only for missing decisions, choose reasonable defaults, and leave genuinely optional fields optional. Do not add agreement checkboxes or extra steps to ordinary forms without a task-specific reason.
 - Give the screen a clear hierarchy: purpose, essential controls, visible consequences or comparison, then a final action only when collecting an answer. Use short labels and plain-language descriptions. Group related fields; introduce Tabs, Steps or Cards only when they reduce complexity.
+- A local widget already displays `summary.title` in its header, or “Local explorer” when no title is supplied. Do not repeat that title as the first Text or Markdown heading in `source`. Start the body with useful instructions, context or controls; retain headings for distinct internal sections. This guidance applies to the supplied widget title, not to every heading in a static display or collecting form. Widget IDs remain available in the `mounted` result and the focused status hint for explicit focus/close commands.
 - Make controls meaningful. In an exploration, changing a bound value should update relevant Text, Table or Progress expressions immediately. Keep these calculations inside the widget or form rather than requiring another model call for each change. Offer Reset when experimentation is useful.
 - Local actions cannot fetch fresh data, run tools or execute scripts. If the agent needs a choice for new evidence or external work, use collect mode to submit it, then use the appropriate tools. A local widget never forwards its edited values; do not infer an answer from its mounting, focus changes or dismissal. Do not label a local state update as a completed deployment, live refresh or actual measured progress.
 - Treat Pi's keyboard navigation, resizing and theme as part of the design. Avoid meaning conveyed only by color, excessive nesting, decorative borders, long option labels or layouts that depend on a wide terminal. Use semantic styling sparingly.
@@ -118,7 +119,7 @@ Use a short, neutral `title` naming the decision, such as “Review configuratio
 
 The renderer chooses status wording, colors, spacing and truncation using Pi's active theme. Expanded details remain available. Native code mode displays the receipt separately in the transcript; mixed scripts retain their other tool output. Preserve that output and any data the model needs.
 
-Local widgets have no submitted values to summarize; `summary.title` names the widget and `summary.fields` does not expose edits. For an answer-collecting comparison, summarize the chosen alternative and key parameters. For exploration followed by an explicit answer, summarize the submitted inputs and include derived outputs in action context when useful. For a workflow, summarize the final decisions rather than the tab or step visited. Request only actual field names in `summary.fields`; display-only computed values are not fields.
+Local widgets have no submitted values to summarize; `summary.title` supplies their single header title and `summary.fields` does not expose edits. Keep that title out of the body's opening heading. For an answer-collecting comparison, summarize the chosen alternative and key parameters. For exploration followed by an explicit answer, summarize the submitted inputs and include derived outputs in action context when useful. For a workflow, summarize the final decisions rather than the tab or step visited. Request only actual field names in `summary.fields`; display-only computed values are not fields.
 
 ## Example: one decision
 
@@ -189,7 +190,7 @@ root = Stack([
 
 ## Example: explore without sending an answer
 
-Use `interaction: "local"`, `presentation: "inline"` and `summary: {title: "Hosting explorer"}` with this document. The supplied prices are illustrative monthly amounts; all changes recompute locally and no final answer is expected:
+Use `interaction: "local"`, `presentation: "inline"` and `summary: {title: "Hosting explorer"}` with this document. The header supplies the title, so the body starts with the worker control. The supplied prices are illustrative monthly amounts; all changes recompute locally and no final answer is expected:
 
 ```openui
 $workers = 4;

@@ -18,7 +18,7 @@ type Presentation = "auto" | "inline" | "fullscreen";
 type Surface = Exclude<Presentation, "auto">;
 const SWITCH_SURFACE = Symbol("switchSurface");
 const summarySchema = Type.Object({
-  title: Type.Optional(Type.String({ maxLength: 160, description: "Neutral title for the submission receipt, such as Review configuration." })),
+  title: Type.Optional(Type.String({ maxLength: 160, description: "Neutral title for the view or receipt, such as Review configuration. Local widgets show this in their header; do not repeat it at the start of source." })),
   fields: Type.Optional(Type.Array(Type.String({ pattern: "^[A-Za-z_][A-Za-z0-9_-]{0,63}$" }), {
     maxItems: 256, uniqueItems: true, description: "Ordered field names to show in the receipt. This only changes presentation; the full result is retained.",
   })),
@@ -222,6 +222,7 @@ export default function openuiExtension(pi: ExtensionAPI): void {
       "Optional summary.title and summary.fields choose the receipt title and field names; Pi handles theme and status. Continue from the actual submitted values, respect cancellation, and use error diagnostics to repair invalid documents. A submitted form means user input was received, not that the requested work was executed.",
       "Prefer presentation: auto (the default) or inline for ordinary content and forms. Display-only documents return status: displayed without acknowledgement; do not add a Continue button just to show content. Use fullscreen only when explicitly requested or expanded inspection helps. No chart or Mermaid renderer is provided by this catalog.",
       "For calculators, scenario explorers, tabs, trees and other local exploration that needs no answer, explicitly set interaction: local. It mounts in the transcript and returns status: mounted plus widgetId; this is no approval or chosen value. All edited values remain local, including on blur, close and later chat. Use Set/Reset or Action of those only; no ToAssistant, legacy submit strings or external actions, even in hidden branches. Local mode requires auto/inline presentation. F6 transfers focus, Escape returns to chat, /openui-close dismisses. Removing a Submit button alone does not make the default workflow nonblocking.",
+      "Local widgets already show summary.title in their header, with Local explorer as the fallback. Start source with useful context, instructions or controls instead of repeating that title as the first Text or Markdown heading. Keep headings for distinct internal sections; this is not a ban on headings in static displays or collecting forms.",
       "In code/notebook execution, await the host's show_ui callable and inspect status (submitted, displayed, mounted, cancelled or error). Answer-collecting forms wait for the user; avoid short timeouts and concurrent forms. Local widgets return without waiting and remain interactive after the cell/turn. Cancellation of a collecting form resolves normally; only use values when status is submitted, handle cancelled without treating defaults as user choices, and do not automatically reopen it. Include relevant results in output when the agent needs them.",
     ],
     parameters: Type.Object({

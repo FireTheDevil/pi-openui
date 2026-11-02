@@ -102,6 +102,8 @@ Use inline displays for tables, explanations and code excerpts that need no ackn
 
 Use local widgets for calculators, comparisons, Tabs, Trees and expandable explanations when no result is needed by the agent. F6 transfers focus between chat and the widget; Shift+F6 cycles widgets. Escape/Ctrl+C returns focus to chat, while `/openui-close [id]` dismisses one. Edits, reset, blur, later chat and dismissal never send values to the model or start a tool. Only Set/Reset actions and local sequences are accepted. Widgets keep independent live state across turns; reopening or replaying a session restores original defaults rather than edited values. See [local interaction, lifecycle and the hosting explorer](docs/local-interaction.md).
 
+Each local widget has one header with `summary.title` (or “Local explorer”) and Close. Start its body with useful context or controls rather than repeating the header title; keep headings for distinct sections. The widget ID remains available in the `mounted` result and in the status hint while focused for use with `/openui-focus [id]` and `/openui-close [id]`.
+
 ## Submission summaries
 
 After the form closes, Pi displays a themed receipt with readable field labels and choice names. Submitted, cancelled and error outcomes have distinct status styling. Receipts follow Pi's active theme, wrap on narrow terminals, and show a compact selection of fields. Expand tool details (Ctrl+O by default) to inspect all receipt fields and the full structured result.
