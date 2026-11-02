@@ -474,11 +474,21 @@ export class OpenUIView implements Component, Focusable {
       if (this.surfaceGesture) this.surfaceGesture.cancelled = true;
     }
     this.viewportSize = { width, height };
-    const contentWidth = width >= 40 ? Math.min(96, width - 4) : width;
+    let contentWidth = width >= 40 ? Math.min(96, width - 4) : width;
     const contentLeft = this.surface === "inline" ? (width >= 40 ? 2 : 0) : Math.floor((width - contentWidth) / 2);
-    const rendered = this.documentBlock(contentWidth);
-    this.bodyLength = rendered.lines.length;
     this.pageSize = height < 3 ? height : height - 2;
+    let rendered = this.documentBlock(contentWidth);
+    // Use the existing right margin when possible. On smaller surfaces reserve
+    // a gutter only for overflowing local content; never widen the widget.
+    const local = this.options.interaction === "local";
+    const scrollbar = local && rendered.lines.length > this.pageSize && (width >= 20 || (height < 3 && width >= 2));
+    const gutter = width >= 20 ? 2 : 1;
+    if (scrollbar && contentLeft + contentWidth + gutter > width) {
+      contentWidth -= gutter;
+      rendered = this.documentBlock(contentWidth);
+    }
+    this.bodyLength = rendered.lines.length;
+    const overflow = this.bodyLength > this.pageSize;
     if (this.followFocus) {
       const key = this.controls[this.focusIndex]?.key;
       const row = key ? rendered.positions.get(key) : undefined;
@@ -494,23 +504,35 @@ export class OpenUIView implements Component, Focusable {
     const title = this.style.fg("accent", this.style.bold(truncateToWidth(safeText(this.options.title ?? "OpenUI").replace(/\n/g, " "), titleWidth, ""))) + (this.model.streaming ? this.style.fg("warning", " · receiving…") : "");
     const clippedTitle = truncateToWidth(title, titleWidth, "");
     const rule = Math.max(0, contentWidth - visibleWidth(clippedTitle) - (toggleLabel ? visibleWidth(toggleLabel) + 3 : 2));
-    const heading = clippedTitle + (rule ? "  " + this.style.fg("borderMuted", "─".repeat(rule)) : "") + (toggleLabel ? " " + this.style.fg("muted", toggleLabel) : "");
+    let heading = clippedTitle + (rule ? "  " + this.style.fg("borderMuted", "─".repeat(rule)) : "") + (toggleLabel ? " " + this.style.fg("muted", toggleLabel) : "");
+    if (local && overflow && (!scrollbar || this.pageSize === 1)) {
+      // A range remains readable where a separate gutter would crowd controls.
+      const direction = this.offset === 0 ? "↓" : this.offset + this.pageSize >= this.bodyLength ? "↑" : "↕";
+      const range = `${direction} ${this.offset + 1}-${Math.min(this.bodyLength, this.offset + this.pageSize)}/${this.bodyLength}`;
+      const compact = `${direction} ${Math.round(this.offset / (this.bodyLength - this.pageSize) * 100)}%`;
+      heading = this.style.fg("accent", visibleWidth(range) <= contentWidth ? range : compact);
+    }
     if (toggleLabel && height >= 3) this.surfaceToggle = { x: contentLeft + visibleWidth(heading) - visibleWidth(toggleLabel), y: 0, width: visibleWidth(toggleLabel) };
     const kind = this.controls[this.focusIndex]?.node.typeName;
     const actions: Record<string, string> = { Input: "type to edit", NumberInput: "type or ↑↓", Select: "↑↓ choose · Enter next", MultiSelect: "↑↓ move · Space toggle", Checkbox: "Space toggle", Toggle: "Space toggle", TextArea: "Enter newline · Ctrl+Enter next", Slider: "←→ adjust", DatePicker: "arrows choose · PgUp/PgDn month", Tree: "↑↓ move · ←→ expand · Enter select", Tabs: "←→ page · Enter next", Steps: "←→ step · Enter next", Button: "Enter/Space activate" };
     const actionHint = kind ? actions[kind] ?? "Enter activate" : "PgUp/PgDn scroll";
     const expandHint = this.options.onToggleExpanded ? ` · F2 ${this.surface === "fullscreen" ? "collapse" : "expand"}` : "";
     const fullHint = `Tab/Shift+Tab focus · ${actionHint}${expandHint} · Esc cancel${this.bodyLength > this.pageSize && kind ? " · PgUp/PgDn scroll" : ""}`;
+    const scrollHint = overflow ? " · PgUp/PgDn scroll" : "";
     const localHints = this.focused
-      ? [`Tab focus · ${actionHint} · Esc/F6 chat`, "Tab next · Esc/F6 chat", "Esc chat"]
-      : ["Local exploration · F6 focus · /openui-close dismiss", "F6 focus · local only", "F6 focus"];
+      ? [`Tab focus · ${actionHint}${scrollHint} · Esc/F6 chat`,
+        ...(overflow ? ["Tab focus · PgUp/PgDn scroll · Esc/F6 chat", "Tab · PgUp/PgDn · Esc chat"] : []),
+        "Tab next · Esc/F6 chat", "Tab · Esc chat", "Esc chat"]
+      : [`Local exploration · F6 focus${scrollHint} · /openui-close dismiss`,
+        ...(overflow ? ["F6 focus · PgUp/PgDn scroll"] : []),
+        "F6 focus · local only", "F6 focus"];
     const hints = this.options.interaction === "local" ? (this.actionError ? ["Action failed · Esc/F6 chat", "Esc chat"] : localHints)
       : this.actionError ? ["Action failed · edit or retry · Esc cancel", "Action failed · Esc cancel"]
       : this.model.streaming ? ["Receiving… · waiting for complete document · Esc cancel", "Receiving… · Esc cancel"]
       : !this.model.valid ? ["Check document · Esc cancel"]
       : this.options.dismissOnEnter && !this.controls.length ? [`Enter close${expandHint} · PgUp/PgDn scroll · Esc cancel`, `Enter close${expandHint} · Esc cancel`, "Enter close · Esc cancel"]
       : [fullHint, `Tab focus · ${actionHint}${expandHint} · Esc cancel`, `Tab next${expandHint} · Esc cancel`, "Tab next · Enter activate · Esc cancel", "Tab next · Esc cancel"];
-    const hint = [...hints, "Esc cancel"].find(value => visibleWidth(value) <= contentWidth) ?? "Esc";
+    const hint = [...hints, local ? (this.focused ? "Esc chat" : "F6 focus") : "Esc cancel"].find(value => visibleWidth(value) <= contentWidth) ?? (local && !this.focused ? "F6" : "Esc");
     const body = rendered.lines.slice(this.offset, this.offset + this.pageSize);
     const visibleLength = body.length;
     if (this.surface === "fullscreen" || (this.surface === undefined && this.options.fillHeight)) while (body.length < this.pageSize) body.push("");
@@ -521,6 +543,17 @@ export class OpenUIView implements Component, Focusable {
       return { ...hit, x: hit.x + contentLeft, y, width: Math.min(contentWidth - hit.x, hit.width), top: Math.max(top, y), bottom: Math.min(top + visibleLength, y + hit.height) };
     }).filter(hit => hit.top < hit.bottom && hit.width > 0);
     this.renderedWidth = width; this.renderedHeight = result.length;
-    return result.map(line => " ".repeat(contentLeft) + truncateToWidth(line, contentWidth, ""));
+    const thumbSize = Math.max(1, Math.round(this.pageSize * this.pageSize / this.bodyLength));
+    const thumbTop = overflow ? Math.round(this.offset / (this.bodyLength - this.pageSize) * (this.pageSize - thumbSize)) : 0;
+    return result.map((line, row) => {
+      const bodyRow = row - top;
+      const inBody = bodyRow >= 0 && bodyRow < visibleLength;
+      const rail = scrollbar && overflow && inBody
+        ? (gutter === 2 ? " " : "") + this.style.fg(
+          bodyRow >= thumbTop && bodyRow < thumbTop + thumbSize ? "accent" : "muted",
+          bodyRow >= thumbTop && bodyRow < thumbTop + thumbSize ? "┃" : "│")
+        : "";
+      return " ".repeat(contentLeft) + (rail ? pad(line, contentWidth) : truncateToWidth(line, contentWidth, "")) + rail;
+    });
   }
 }

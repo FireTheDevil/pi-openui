@@ -23,7 +23,7 @@ interface Widget {
   model: DocumentModel;
   view: OpenUIView;
   options: ViewOptions;
-  component: Component & { focused: boolean };
+  component: Component & { focused: boolean; capturesViewportInput?: boolean };
   disposed: boolean;
   theme: HostTheme;
   closeHit?: { x: number; width: number };
@@ -166,6 +166,9 @@ export function createLocalWidgets(pi: ExtensionAPI) {
     widget.view = new OpenUIView(model, options);
     widget.view.focused = false;
     widget.component = {
+      // Pi 1.5 otherwise consumes PgUp/PgDn for conversation scrolling before
+      // dispatching to a focused transcript component. Older hosts ignore this.
+      capturesViewportInput: true,
       get focused() { return widget.view.focused; },
       set focused(value: boolean) { widget.view.focused = value; },
       invalidate() { if (!widget.disposed) widget.view.invalidate(); },

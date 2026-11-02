@@ -2,6 +2,25 @@
 
 Recorded release checks and their scope. These results do not guarantee behavior with every model or environment.
 
+## Issue #5 — local viewport cues (2026-11-02 UTC)
+
+The working branch `fix/local-widget-scroll-cues`, based on `bbbb6ba`, passed `npm run typecheck` and all 236 existing `npm test` cases. No unit tests were added. `git diff --check` passed. The UI detector reported no findings for `src/view.ts`.
+
+Actual Pi **1.5.0**, Node **24.22.1**, npm **12.2.1**, Linux fullscreen-host checks used an isolated temporary agent directory and a deterministic command fixture wrapping the checkout's actual extension registration and `show_ui.execute`. No provider or model was available or called. This was PTY-driven interactive inspection of the real Pi CLI, not a simulated terminal boundary or a real-model evaluation.
+
+Both **dark** (100×44 initially) and **light** (68×36 initially) sessions exercised a local Tabs document with 28 detail rows, an input and a button initially below the viewport:
+
+- The initial viewport already showed overflow. PgDn exposed distinct middle and bottom thumb positions and reached the widget after enabling Pi 1.5's public `capturesViewportInput` component flag. Without it, the host consumed those keys for transcript scrolling.
+- Tab followed focus to the initially hidden input; typing edited it. Real SGR mouse press/release events activated the below-viewport button after scrolling, changing its visible counter from 0 to 1 in both themes.
+- Resizing both sessions to **39×28** reserved a gutter without overwriting controls. Mouse wheel events in the gutter scrolled the widget; clicking the relocated button changed the counter to 2.
+- At **18×28**, the heading showed direction and visible line range/total rather than a gutter. PgDn reached the bottom range; Tab wrapped focus to the top range. Focus and chat hints remained visible.
+- Switching Tabs to the short page removed the cues. Returning to the long page and collapsing its detail through a local Set action removed the scrollbar and scroll hint without losing input/button content. A separate Steps fixture likewise lost its overflow cue on switching to its short step.
+- F6 returned to the normal composer; ordinary text could be typed there without submitting the widget.
+
+ANSI terminal captures were inspected and replayed side by side through the **browser-use CLI** for dark/light, middle/bottom, 39-column and 18-column states. The replay retained captured foreground/background styling, with explicit dark/light canvas backgrounds; it is not a screenshot of a physical terminal. The scrollbar uses the host's accent/muted colors and different thumb/track glyph weights. Captures and the temporary fixture remain local verification artifacts, not packaged sources.
+
+Scope limits: these changes were not rerun interactively on Pi 1.4, regular host mode, external providers, or the conversion notebook matrix. The earlier results below remain historical evidence for their own revisions. Extremely narrow surfaces necessarily shorten hints; the scrollbar is a passive position indicator, not a draggable control.
+
 ## v0.7.0 — clean tarball installation (2026-11-02 UTC)
 
 The merged release revision [`edd022e9d086dbc55b415cacea7a5af3398f2a27`](https://github.com/FireTheDevil/pi-openui/commit/edd022e9d086dbc55b415cacea7a5af3398f2a27) passed the clean-install checks in [issue #4](https://github.com/FireTheDevil/pi-openui/issues/4). No package fixes were needed. This records the tested revision, before this documentation entry was added.
