@@ -20,7 +20,7 @@ Removing a Submit button from a default form does not make it nonblocking. Selec
 
 Try `/openui-demo --local` for the hosting explorer and `/openui-demo --local-tabs` for the tabbed explanation. Both mount immediately without sending a user-answer message. These local demo flags cannot be combined with `--stream` or `--fullscreen`.
 
-Local mode currently rejects `presentation: "fullscreen"`. There is no F2 expansion for these widgets. The existing collect-mode form can still expand/collapse, and static fullscreen inspection retains its existing close behavior.
+Local widgets start compact. Their header has an Expand/Collapse control, and F2 toggles the focused widget between compact and expanded heights within the transcript. Chat remains available, and expansion does not wait for an answer or send any values. Local mode still rejects `presentation: "fullscreen"`; collect-mode forms retain their separate inline/fullscreen expansion behavior.
 
 ## Focus and interaction
 
@@ -32,11 +32,27 @@ Mounting never steals keyboard focus. The widget header and status hint identify
 | Select the next local widget | Shift+F6 |
 | Select a widget explicitly | `/openui-focus [id]` |
 | Return from a focused widget to chat | F6, Escape or Ctrl+C |
+| Expand or collapse a local widget within the transcript | F2 while focused, or its Expand/Collapse header button with mouse input |
 | Dismiss a widget without sending its values | `/openui-close [id]`, or its Close header button with mouse input |
 
-Within a focused widget, the existing component keys apply: Tab/Shift+Tab changes controls, arrows navigate, Enter/Space activates buttons, and Page Up/Down scrolls its content. Escape/Ctrl+C returns focus to chat; it does not cancel a running notebook or submit/dismiss the widget. Once chat has focus, normal typing and sending belong to Pi.
+Within a focused widget, the existing component keys apply: Tab/Shift+Tab changes controls, arrows navigate, Enter/Space activates buttons, and Ctrl+Page Up/Down pages its content. Plain Page Up/Down also works in the regular host; the fullscreen host reserves those unmodified keys for the surrounding transcript. Escape/Ctrl+C returns focus to chat; it does not cancel a running notebook or submit/dismiss the widget. Once chat has focus, normal typing and sending belong to Pi.
 
 Pi's fullscreen host supports mouse interaction in transcript widgets. Regular host mode uses keyboard interaction and leaves mouse handling to the terminal. In the regular host, scroll the terminal manually to see an older widget before editing it; focus transfer cannot move the terminal's scrollback. The fullscreen host can reveal its transcript row when focus changes. A widget's own viewport and wrapping adapt on resize. Return focus to chat before using unrelated dialogs or normal chat input.
+
+## Height and overflow
+
+Compact mode limits the inner view to half the terminal height, with a minimum of 5 and maximum of 18 rows. Expanded mode uses three quarters of the terminal height, with a minimum of 5 and maximum of 48 rows. Both policies round down before applying those bounds, update on terminal resize, and leave short content at its natural height. The wrapper header adds one row outside this limit; the inner-view limit includes its keyboard-hint row and any inner heading row.
+
+| Terminal rows | Compact inner-view limit | Expanded inner-view limit |
+| --- | --- | --- |
+| 24 | 12 | 18 |
+| 30 | 15 | 22 |
+| 36 | 18 | 27 |
+| 80 | 18 | 48 |
+
+Content keeps its existing width and wrapping policy; expansion increases height, not width. When content exceeds either viewport, the footer shows its visible line range and above/below arrows. Narrow layouts retain a shorter overflow cue. Ctrl+Page Up/Down always pages the widget viewport, including when a calendar or multiline input has focus. Pi's fullscreen host handles plain Page Up/Down as transcript scrolling before extension input listeners, so use the Ctrl-modified keys for a local widget. Focus navigation and the mouse wheel also reveal hidden content. Indicators update as content, focus, width or height changes and disappear when everything fits.
+
+Expansion preserves edited values, the active tab or step, and control focus. The scroll offset remains where valid and is clamped when the viewport or content size changes; focus navigation can reveal the selected control. Each widget owns its own expansion state. Expanding or collapsing does not submit an answer, invoke a tool or start a model turn.
 
 ## Actions and data ownership
 
@@ -50,11 +66,11 @@ The adapter also bounds static reference expansion to 16,384 syntax nodes before
 
 ## Lifecycle
 
-- Each mounted widget owns its model, draft values, focus and local navigation state. Multiple widgets keep independent state.
+- Each mounted widget owns its model, draft values, focus, local navigation and expansion state. Multiple widgets keep independent state.
 - Ordinary agent turns, tool completion and later chat leave the widgets active. A finished tool call's AbortSignal no longer owns the widget.
 - Explicit dismissal disposes the widget and its model. Session navigation/replacement and shutdown release live state and input handlers.
-- The session records original source/title and explicit dismissal markers for presentation, outside the model's message context. Edited values, cursor position and local navigation state are not saved.
-- Reopening a session or replaying a branch reconstructs still-open widgets from their original defaults; explicitly dismissed widgets stay closed. Do not rely on an exploratory edit as a durable saved answer.
+- The session records original source/title and explicit dismissal markers for presentation, outside the model's message context. Edited values, cursor position, local navigation and expansion state are not saved.
+- Reopening a session or replaying a branch reconstructs still-open widgets from their original defaults in compact mode; explicitly dismissed widgets stay closed. Do not rely on an exploratory edit as a durable saved answer.
 - Widgets follow the visible current session branch; unrelated branches do not share live state. When Pi compacts away an older widget's transcript row, its live widget is disposed. Widgets whose rows remain visible retain their current state. Dismissal, navigation and compaction are presentation lifecycle events, not submission events.
 
 At most 16 local widgets may be active. A new mount beyond that limit returns diagnostics; close an unused widget before mounting another. Replay restores at most the 16 most recent still-open widgets. Older/unavailable entries show a historical placeholder rather than implying live interaction.

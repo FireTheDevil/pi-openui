@@ -2,6 +2,16 @@
 
 Recorded release checks and their scope. These results do not guarantee behavior with every model or environment.
 
+## Issue #6 — inline local-widget expansion (2026-11-03)
+
+The `feat/local-widget-expansion` branch passed type checking and all 236 existing core tests on Linux with Node 24.19.0 and the Pi 1.4.0 development baseline. An ad hoc component check covered 70 viewport-size combinations from 1–100 columns and 5–80 terminal rows, header mouse targets, drag cancellation, overflow feedback, paging and collapse after scrolling. No new unit tests were added.
+
+Actual fullscreen CLI checks passed on Pi 1.4.0 in dark and light themes and Pi 1.5.0 in the dark theme. They verified F2 and mouse expand/collapse, height changes on terminal resize, wrapped content, overflow at the top/middle/bottom, dedicated Ctrl+Page Up/Down and mouse-wheel scrolling, and preservation of numeric edits, text drafts, active tabs/steps and useful focus/scroll position. A 20-column layout retained working compact mouse controls. A short widget showed no misleading overflow cue. Multiple widgets kept independent expansion state; chat remained available and the same widget stayed editable after a normal chat turn. Local interactions emitted no additional tool/provider calls or edited values. Session replay restored original defaults in compact mode.
+
+Pi's fullscreen host consumes plain Page Up/Down before extension listeners. These checks caught that behavior; the implementation uses Ctrl+Page Up/Down for explicit widget paging without modifying host bindings or private APIs. The [height and overflow guide](local-interaction.md#height-and-overflow) documents the bounded policies and replay behavior.
+
+These runs used fresh model-authored OpenUI documents dispatched through a deterministic provider and actual PTY keyboard/mouse input. They establish runtime integration, not external-model UI-generation quality. No external LLM calls were made. The native-code/conversion notebook CLI matrix and clean tarball installation were not repeated for this change; earlier release results retain their original scope.
+
 ## v0.7.0 — clean tarball installation (2026-11-02 UTC)
 
 The merged release revision [`edd022e9d086dbc55b415cacea7a5af3398f2a27`](https://github.com/FireTheDevil/pi-openui/commit/edd022e9d086dbc55b415cacea7a5af3398f2a27) passed the clean-install checks in [issue #4](https://github.com/FireTheDevil/pi-openui/issues/4). No package fixes were needed. This records the tested revision, before this documentation entry was added.

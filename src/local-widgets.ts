@@ -25,8 +25,11 @@ interface Widget {
   options: ViewOptions;
   component: Component & { focused: boolean };
   disposed: boolean;
+  expanded: boolean;
   theme: HostTheme;
   closeHit?: { x: number; width: number };
+  expandHit?: { x: number; width: number };
+  headerGesture?: { action: "expand" | "close"; x: number; y: number; cancelled?: boolean };
   width?: number;
 }
 // Pi 1.4's matchesKey handles plain F6 but not modified function keys.
@@ -50,6 +53,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
   let lastId: string | undefined;
   let unsubscribe: (() => void) | undefined;
   let disposed = false;
+  let revealProbe: Widget | undefined;
 
   const focused = () => host?.getFocusedComponent?.() ?? null;
   const owned = (component: Component | null) => [...widgets.values()].find(widget => widget.component === component);
@@ -95,12 +99,20 @@ export function createLocalWidgets(pi: ExtensionAPI) {
     // Pi keeps its document in the public child tree even in fullscreen mode.
     // The fullscreen layout root's render() can omit its flex-sized transcript;
     // render the containing document child at its actual last rendered width.
-    const prefix = `${widget.data.widgetId} · `;
-    for (const child of host.children ?? []) {
-      const lines = child.render(Math.max(1, widget.width ?? host.terminal.columns));
-      const row = lines.findIndex(line => stripTerminalSequences(line).startsWith(prefix));
-      if (row >= 0) { host.scrollBy(row - host.viewportTop); break; }
-    }
+    // Probe with a unique header only in these synchronous render results.
+    // Visible headers can repeat or be truncated, so they cannot identify a
+    // widget reliably. No marker is rendered to the terminal or persisted.
+    const marker = `OpenUI focus probe: ${widget.data.widgetId}`;
+    let targetRow: number | undefined;
+    revealProbe = widget;
+    try {
+      for (const child of host.children ?? []) {
+        const lines = child.render(Math.max(1, widget.width ?? host.terminal.columns));
+        const row = lines.findIndex(line => stripTerminalSequences(line) === marker);
+        if (row >= 0) { targetRow = row; break; }
+      }
+    } finally { revealProbe = undefined; }
+    if (targetRow !== undefined) host.scrollBy(targetRow - host.viewportTop);
   }
   function focus(widget: Widget, scroll = true): boolean {
     refreshHost();
@@ -159,10 +171,17 @@ export function createLocalWidgets(pi: ExtensionAPI) {
     const model = new DocumentModel(data.source);
     const options: ViewOptions = {
       interaction: "local", title: data.title, theme: {}, fillHeight: false, surface: "inline",
-      getHeight: () => Math.max(5, Math.min(18, Math.floor((host?.terminal.rows ?? 30) / 2))),
+      getHeight: () => Math.max(5, Math.min(widget.expanded ? 48 : 18,
+        Math.floor((host?.terminal.rows ?? 30) * (widget.expanded ? 3 / 4 : 1 / 2)))),
       requestRender, onDone() {}, onBlur: blur,
     };
-    const widget = { data, model, options, disposed: false, theme: {} } as Widget;
+    const widget = { data, model, options, disposed: false, expanded: false, theme: {} } as Widget;
+    const toggleExpanded = () => {
+      widget.expanded = !widget.expanded;
+      widget.headerGesture = undefined;
+      widget.view.invalidate();
+      requestRender();
+    };
     widget.view = new OpenUIView(model, options);
     widget.view.focused = false;
     widget.component = {
@@ -170,32 +189,65 @@ export function createLocalWidgets(pi: ExtensionAPI) {
       set focused(value: boolean) { widget.view.focused = value; },
       invalidate() { if (!widget.disposed) widget.view.invalidate(); },
       render(width: number) {
-        if (widget.disposed || width < 1) return [];
+        if (widget.disposed || width < 1) {
+          widget.width = width;
+          widget.expandHit = widget.closeHit = undefined;
+          if (widget.headerGesture) widget.headerGesture.cancelled = true;
+          return [];
+        }
+        if (widget.width !== width && widget.headerGesture) widget.headerGesture.cancelled = true;
         widget.width = width;
+        if (revealProbe === widget) return [`OpenUI focus probe: ${data.widgetId}`, ...widget.view.render(width)];
         const style = presentation(() => widget.theme);
         const left = `${data.widgetId} · ${safeText(data.title)}`;
         const label = "[Close]";
-        const gap = Math.max(1, width - visibleWidth(left) - label.length);
-        const header = truncateToWidth(left, Math.max(0, width - label.length - 1), "") + " ".repeat(Math.min(gap, Math.max(0, width - label.length))) + label;
-        widget.closeHit = { x: Math.max(0, visibleWidth(header) - label.length), width: label.length };
+        const expandLabel = width >= 22 ? `[${widget.expanded ? "Collapse" : "Expand"} F2]`
+          : width >= 3 ? `[${widget.expanded ? "−" : "+"}]` : widget.expanded ? "−" : "+";
+        const closeLabel = width >= 11 ? label : width >= 7 ? "[×]" : "";
+        const actions = expandLabel + (closeLabel ? ` ${closeLabel}` : "");
+        const titleWidth = Math.max(0, width - visibleWidth(actions) - 1);
+        const clippedTitle = truncateToWidth(left, titleWidth, "");
+        const header = clippedTitle + " ".repeat(Math.max(0, width - visibleWidth(clippedTitle) - visibleWidth(actions))) + actions;
+        const actionStart = width - visibleWidth(actions);
+        widget.expandHit = { x: actionStart, width: visibleWidth(expandLabel) };
+        widget.closeHit = closeLabel ? { x: width - visibleWidth(closeLabel), width: visibleWidth(closeLabel) } : undefined;
         return [truncateToWidth(style.fg(widget.view.focused ? "accent" : "muted", header), width, ""), ...widget.view.render(width)];
       },
       handleInput(data: string) {
         if (widget.disposed || focused() !== widget.component) return;
         if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c") || matchesKey(data, "f6")) { blur(); return; }
         if (cycleKey(data)) { toggle(true); return; }
+        if (matchesKey(data, "f2")) { toggleExpanded(); return; }
+        // Pi's fullscreen viewport consumes plain paging before extension
+        // listeners. Modified paging reaches the widget without changing the
+        // host's keybindings or replacing its input handling.
+        if (matchesKey(data, "ctrl+pageUp") || matchesKey(data, "ctrl+pageDown")) {
+          widget.view.page(matchesKey(data, "ctrl+pageUp") ? -1 : 1);
+          return;
+        }
         widget.view.handleInput(data);
       },
       handleMouse(event: TuiMouseEvent) {
         if (widget.disposed) return undefined;
+        const action = event.y === 0 && event.x >= 0 && event.x < (widget.width ?? 0)
+          ? widget.expandHit && event.x >= widget.expandHit.x && event.x < widget.expandHit.x + widget.expandHit.width ? "expand"
+            : widget.closeHit && event.x >= widget.closeHit.x && event.x < widget.closeHit.x + widget.closeHit.width ? "close" : undefined
+          : undefined;
+        if (widget.headerGesture && (event.type === "drag" || event.x !== widget.headerGesture.x || event.y !== widget.headerGesture.y)) widget.headerGesture.cancelled = true;
         if (event.type === "press" || event.type === "click") {
           if (!focus(widget, false)) return undefined;
-          if (event.button === "left" && event.type === "click" && event.y === 0 && widget.closeHit
-            && event.x >= widget.closeHit.x && event.x < widget.closeHit.x + widget.closeHit.width) {
-            remove(widget.data.widgetId, true);
-            return { handled: true, render: true };
+          const gesture = widget.headerGesture;
+          widget.headerGesture = undefined;
+          if (event.button === "left" && !event.shift && !event.alt && !event.ctrl && action) {
+            if (event.type === "press") widget.headerGesture = { action, x: event.x, y: event.y };
+            else if (!gesture || (!gesture.cancelled && gesture.action === action)) {
+              if (action === "expand") toggleExpanded();
+              else remove(widget.data.widgetId, true);
+            }
+            return { handled: true, render: event.type === "click" };
           }
         }
+        if (widget.headerGesture) return { handled: true, render: false };
         if (event.y === 0) return { handled: true, render: false };
         const result = widget.view.handleMouse({ ...event, y: event.y - 1, height: Math.max(0, event.height - 1) });
         // The manager owns keyboard focus and restores the actual chat editor.

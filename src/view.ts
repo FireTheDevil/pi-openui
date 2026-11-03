@@ -232,6 +232,8 @@ export class OpenUIView implements Component, Focusable {
     this.offset = Math.max(0, Math.min(this.offset + delta, Math.max(0, this.bodyLength - this.pageSize)));
     this.options.requestRender();
   }
+  /** Explicit viewport paging, independent of the focused field's own keys. */
+  page(direction: -1 | 1): void { if (!this.closed) this.scroll(direction * this.pageSize); }
 
   handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
     if (this.closed) return;
@@ -501,16 +503,31 @@ export class OpenUIView implements Component, Focusable {
     const actionHint = kind ? actions[kind] ?? "Enter activate" : "PgUp/PgDn scroll";
     const expandHint = this.options.onToggleExpanded ? ` · F2 ${this.surface === "fullscreen" ? "collapse" : "expand"}` : "";
     const fullHint = `Tab/Shift+Tab focus · ${actionHint}${expandHint} · Esc cancel${this.bodyLength > this.pageSize && kind ? " · PgUp/PgDn scroll" : ""}`;
+    const overflow = this.bodyLength > this.pageSize;
+    const scrollHint = overflow ? " · Ctrl+PgUp/PgDn scroll" : "";
+    const localActionHint = kind === "DatePicker" ? "arrows choose" : kind ? actionHint : "Ctrl+PgUp/PgDn scroll";
     const localHints = this.focused
-      ? [`Tab focus · ${actionHint} · Esc/F6 chat`, "Tab next · Esc/F6 chat", "Esc chat"]
-      : ["Local exploration · F6 focus · /openui-close dismiss", "F6 focus · local only", "F6 focus"];
+      ? [`Tab focus · ${localActionHint}${kind ? scrollHint : ""} · Esc/F6 chat`, `Tab next${scrollHint} · Esc/F6 chat`, `${overflow ? "Ctrl+PgUp/PgDn · " : ""}Esc/F6 chat`, "Esc/F6 chat", "Esc chat", "Esc"]
+      : [`Local exploration · F6 focus${scrollHint}`, `F6 focus${scrollHint}`, "F6 focus", "F6"];
     const hints = this.options.interaction === "local" ? (this.actionError ? ["Action failed · Esc/F6 chat", "Esc chat"] : localHints)
       : this.actionError ? ["Action failed · edit or retry · Esc cancel", "Action failed · Esc cancel"]
       : this.model.streaming ? ["Receiving… · waiting for complete document · Esc cancel", "Receiving… · Esc cancel"]
       : !this.model.valid ? ["Check document · Esc cancel"]
       : this.options.dismissOnEnter && !this.controls.length ? [`Enter close${expandHint} · PgUp/PgDn scroll · Esc cancel`, `Enter close${expandHint} · Esc cancel`, "Enter close · Esc cancel"]
       : [fullHint, `Tab focus · ${actionHint}${expandHint} · Esc cancel`, `Tab next${expandHint} · Esc cancel`, "Tab next · Enter activate · Esc cancel", "Tab next · Esc cancel"];
-    const hint = [...hints, "Esc cancel"].find(value => visibleWidth(value) <= contentWidth) ?? "Esc";
+    let hint = [...hints, "Esc cancel"].find(value => visibleWidth(value) <= contentWidth) ?? "Esc";
+    if (this.options.interaction === "local" && overflow) {
+      // Keep overflow visible even when the explanatory hint needs to shrink.
+      // This lives in the existing footer, so content and mouse coordinates do
+      // not change as the indicator appears, disappears or changes position.
+      const above = this.offset > 0;
+      const below = this.offset + this.pageSize < this.bodyLength;
+      const range = `${above ? "↑ " : ""}${this.offset + 1}–${Math.min(this.bodyLength, this.offset + this.pageSize)}/${this.bodyLength}${below ? " ↓" : ""}`;
+      const indicator = visibleWidth(range) <= contentWidth ? range : above && below && contentWidth > 1 ? "↑↓" : below ? "↓" : "↑";
+      const remaining = contentWidth - visibleWidth(indicator) - 3;
+      const suffix = hints.find(value => visibleWidth(value) <= remaining);
+      hint = indicator + (suffix ? ` · ${suffix}` : "");
+    }
     const body = rendered.lines.slice(this.offset, this.offset + this.pageSize);
     const visibleLength = body.length;
     if (this.surface === "fullscreen" || (this.surface === undefined && this.options.fillHeight)) while (body.length < this.pageSize) body.push("");
