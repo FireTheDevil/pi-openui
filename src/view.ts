@@ -18,6 +18,8 @@ export interface ViewOptions {
   getHeight(): number;
   onDone(result: UIResult): void;
   title?: string;
+  /** Suppress the inner heading when the host supplies the document's title. */
+  showHeading?: boolean;
   theme?: HostTheme;
   fillHeight?: boolean;
   /** Inline components share Pi's editor dock with the surrounding transcript. */
@@ -480,7 +482,9 @@ export class OpenUIView implements Component, Focusable {
     const contentLeft = this.surface === "inline" ? (width >= 40 ? 2 : 0) : Math.floor((width - contentWidth) / 2);
     const rendered = this.documentBlock(contentWidth);
     this.bodyLength = rendered.lines.length;
-    this.pageSize = height < 3 ? height : height - 2;
+    const headingRows = height >= 3 && this.options.showHeading !== false ? 1 : 0;
+    const footerRows = height >= 3 ? 1 : 0;
+    this.pageSize = height - headingRows - footerRows;
     if (this.followFocus) {
       const key = this.controls[this.focusIndex]?.key;
       const row = key ? rendered.positions.get(key) : undefined;
@@ -497,7 +501,7 @@ export class OpenUIView implements Component, Focusable {
     const clippedTitle = truncateToWidth(title, titleWidth, "");
     const rule = Math.max(0, contentWidth - visibleWidth(clippedTitle) - (toggleLabel ? visibleWidth(toggleLabel) + 3 : 2));
     const heading = clippedTitle + (rule ? "  " + this.style.fg("borderMuted", "─".repeat(rule)) : "") + (toggleLabel ? " " + this.style.fg("muted", toggleLabel) : "");
-    if (toggleLabel && height >= 3) this.surfaceToggle = { x: contentLeft + visibleWidth(heading) - visibleWidth(toggleLabel), y: 0, width: visibleWidth(toggleLabel) };
+    if (toggleLabel && headingRows) this.surfaceToggle = { x: contentLeft + visibleWidth(heading) - visibleWidth(toggleLabel), y: 0, width: visibleWidth(toggleLabel) };
     const kind = this.controls[this.focusIndex]?.node.typeName;
     const actions: Record<string, string> = { Input: "type to edit", NumberInput: "type or ↑↓", Select: "↑↓ choose · Enter next", MultiSelect: "↑↓ move · Space toggle", Checkbox: "Space toggle", Toggle: "Space toggle", TextArea: "Enter newline · Ctrl+Enter next", Slider: "←→ adjust", DatePicker: "arrows choose · PgUp/PgDn month", Tree: "↑↓ move · ←→ expand · Enter select", Tabs: "←→ page · Enter next", Steps: "←→ step · Enter next", Button: "Enter/Space activate" };
     const actionHint = kind ? actions[kind] ?? "Enter activate" : "PgUp/PgDn scroll";
@@ -531,8 +535,8 @@ export class OpenUIView implements Component, Focusable {
     const body = rendered.lines.slice(this.offset, this.offset + this.pageSize);
     const visibleLength = body.length;
     if (this.surface === "fullscreen" || (this.surface === undefined && this.options.fillHeight)) while (body.length < this.pageSize) body.push("");
-    const result = height < 3 ? body : [heading, ...body, this.style.fg(this.actionError ? "error" : "muted", hint)];
-    const top = height < 3 ? 0 : 1;
+    const result = [...(headingRows ? [heading] : []), ...body, ...(footerRows ? [this.style.fg(this.actionError ? "error" : "muted", hint)] : [])];
+    const top = headingRows;
     this.mouseHits = rendered.hits.map(hit => {
       const y = hit.y - this.offset + top;
       return { ...hit, x: hit.x + contentLeft, y, width: Math.min(contentWidth - hit.x, hit.width), top: Math.max(top, y), bottom: Math.min(top + visibleLength, y + hit.height) };

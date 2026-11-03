@@ -114,6 +114,8 @@ Use local widgets for calculators, comparisons, Tabs, Trees and expandable expla
 
 Hide, beside Close, reduces a local widget to a one-line placeholder while retaining its live values, drafts, tab/step, scroll position and expanded height. Restore resumes that widget; Close permanently dismisses it. Keyboard users can run `/openui-hide [id]` and `/openui-restore [id]`; restore without an ID selects the most recently hidden widget. Hidden widgets leave the status hint and F6/Shift+F6 cycle, but their Restore action remains in the transcript. Hiding and restoring never submit values or start model/tool calls.
 
+Each local widget has one header with `summary.title` (or “Local explorer”) and Close. Start its body with useful context or controls rather than repeating the header title; keep headings for distinct sections. The widget ID remains available in the `mounted` result and in the status hint while focused for use with `/openui-focus [id]` and `/openui-close [id]`.
+
 ## Submission summaries
 
 After the form closes, Pi displays a themed receipt with readable field labels and choice names. Submitted, cancelled and error outcomes have distinct status styling. Receipts follow Pi's active theme, wrap on narrow terminals, and show a compact selection of fields. Expand tool details (Ctrl+O by default) to inspect all receipt fields and the full structured result.

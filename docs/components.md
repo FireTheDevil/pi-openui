@@ -6,6 +6,8 @@ The same component catalog supports three contracts: static inline display, `int
 
 Every component is specified through `@openuidev/lang-core` and rendered using Pi's native TUI. Use `root = Stack([...])`. Arguments are positional in the order below; `?` marks an optional argument. The existing six component signatures remain compatible.
 
+Local widgets already display `summary.title` in their header (or “Local explorer” by default). Begin the body with useful context or controls, without repeating that title as the first Text or Markdown heading. Keep Section/Card titles and other headings for distinct internal groups. Static displays and collecting forms retain their existing heading behavior.
+
 ## Fields and controls
 
 | Component | Signature | Stored value |

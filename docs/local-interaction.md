@@ -24,6 +24,8 @@ Local widgets start compact. Their header has an Expand/Collapse control, and F2
 
 ## Focus and interaction
 
+The header shows the widget title and Close control. Widget IDs stay out of the title row: obtain an ID from the `mounted` result or focus the widget with F6/Shift+F6 to see it in the status hint below the editor. Both commands accept that ID; omitting it uses the last selected widget.
+
 Mounting never steals keyboard focus. The widget header and status hint identify its local interaction mode. Use:
 
 | Action | Shortcut or command |
@@ -74,7 +76,7 @@ Local documents are checked before mounting. `@ToAssistant`, legacy string submi
 
 The adapter also bounds static reference expansion to 16,384 syntax nodes before handing the document to lang-core. A small source can otherwise expand excessively through repeated aliases. If the limit is reached, simplify those references or split the content into smaller widgets.
 
-`summary.title` supplies a neutral widget title. `summary.fields` does not export local state or create a submission summary.
+`summary.title` supplies the widget's single header title, with “Local explorer” as the fallback. The inner view omits its own heading and uses that row for content. Start the document body with useful instructions, context or controls instead of repeating the title as its first Text or Markdown heading. Keep distinct section headings when they help organize the content; the renderer preserves authored content rather than deduplicating matching text. Static displays and collecting forms retain their existing titles and controls. `summary.fields` does not export local state or create a submission summary.
 
 ## Lifecycle
 
@@ -119,6 +121,8 @@ text(mounted); // mounting metadata, never the user's edited worker count
 [`LOCAL_EXPLANATION_SOURCE`](../src/local-demo.ts) is a second example: Tabs switch between an overview and a formula, while a Set button expands/hides an explanation. It has no final choice to submit.
 
 ## Actual Pi captures
+
+The captures below are historical v0.7.0 views, before the single-header change; their repeated titles and prominent widget IDs do not reflect the current local-widget layout.
 
 These captures show Pi 1.4.0 with conversion 4.0.7 Deno Notebook Mode and the dark theme. The green tool result already returned `mounted`, and the originating cell and model turn finished. The widget then changed to 11 requested workers: Basic $46, Standard $44, Pro $40. The normal composer remains below it.
 

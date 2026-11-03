@@ -214,6 +214,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
       getHeight: () => Math.max(5, Math.min(widget.expanded ? 48 : 18,
         Math.floor((host?.terminal.rows ?? 30) * (widget.expanded ? 3 / 4 : 1 / 2)))),
       requestRender, onDone() {}, onBlur: blur,
+      showHeading: false,
     };
     const widget = { data, model, options, disposed: false, expanded: false, hidden: false, hiddenOrder: 0, theme: {} } as Widget;
     const toggleExpanded = () => {
@@ -239,7 +240,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
         widget.width = width;
         if (revealProbe === widget) return [`OpenUI focus probe: ${data.widgetId}`, ...widget.view.render(width)];
         const style = presentation(() => widget.theme);
-        const left = `${data.widgetId} · ${safeText(data.title)}`;
+        const left = safeText(data.title).trim() || "Local explorer";
         const label = "[Close]";
         const closeLabel = width >= (widget.hidden ? 40 : 30) ? label : width >= (widget.hidden ? 12 : 11) ? "[×]" : "";
         const controls: Array<{ action: HeaderAction; label: string }> = widget.hidden
@@ -376,7 +377,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
         ? { status: "mounted", widgetId }
         : { status: "error", error: "This tool call already owns a different local document. Use a new call to mount another widget." };
       if (widgets.size >= MAX_LOCAL_WIDGETS) return { status: "error", error: `At most ${MAX_LOCAL_WIDGETS} local widgets may remain open. Use /openui-close <id> before mounting another.` };
-      const data: StoredWidget = { version: 1, widgetId, source, title: safeText(title || "Local explorer").replace(/\n/g, " ").slice(0, 160) };
+      const data: StoredWidget = { version: 1, widgetId, source, title: safeText(title ?? "").replace(/\n/g, " ").trim().slice(0, 160) || "Local explorer" };
       const widget = create(data);
       if (!widget.model.valid) {
         const error = widget.model.diagnostics.join("\n") || "Invalid local OpenUI document.";
