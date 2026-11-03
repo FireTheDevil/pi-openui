@@ -10,6 +10,8 @@ There are three cooperating layers:
 | Bundled `openui` skill | Decide when prose, static display, local exploration, answer collection or expansion helps; choose a composition, ground the content, use state and actions, and select useful receipt fields |
 | Runtime | Parse and validate documents, render inline content or native controls, evaluate local actions, preserve typed results, render receipts and return cancellation outcomes |
 
+The active component prompt includes the public bounds in the [component reference](components.md). Its upstream-generated action section still advertises unsupported `@OpenUrl` and actionless buttons. [Issue #15](https://github.com/FireTheDevil/pi-openui/issues/15) tracks that separate contradiction. Constraint-guidance checks do not establish that the entire prompt is consistent.
+
 The behavioral goal is an interface chosen for the user's task: useful comparisons, decisions, scenario exploration and workflows. A valid document alone does not establish that a model chose a useful interface.
 
 ## Run with a configured provider

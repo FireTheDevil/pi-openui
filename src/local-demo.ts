@@ -6,7 +6,6 @@ pro = 40 + 4 * ($workers > 12 ? $workers - 12 : 0);
 minimum = basic < standard ? (basic < pro ? basic : pro) : (standard < pro ? standard : pro);
 cheapest = (basic == minimum ? "Basic" : "") + (standard == minimum ? (basic == minimum ? " and Standard" : "Standard") : "") + (pro == minimum ? (basic == minimum || standard == minimum ? " and Pro" : "Pro") : "");
 root = Stack([
-  Text("Hosting cost explorer", {bold: true}),
   Text("Example prices in $/month. Additional workers cost $4 each.", {tone: "muted"}),
   NumberInput("workers", "Requested workers", $workers, {min: 0, max: 100, step: 1}),
   Table(["Plan", "Base", "Included", "Total/month"], [
@@ -22,7 +21,6 @@ root = Stack([
 export const LOCAL_EXPLANATION_SOURCE = `$page = "overview";
 $expanded = false;
 root = Stack([
-  Text("How worker pricing works", {bold: true}),
   Tabs("page", [
     {value: "overview", label: "Overview", children: [
       Text("Each plan includes a fixed number of workers."),

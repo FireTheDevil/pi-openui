@@ -30,8 +30,14 @@ export interface NormalizedOption {
 export interface TreeNode extends Omit<NormalizedOption, "depth"> { children?: TreeNode[]; }
 export interface TabItem { value: string; label: string; children: unknown[]; }
 
+const fieldNameMax = 64;
+const fieldNamePattern = new RegExp(`^[A-Za-z_][A-Za-z0-9_-]{0,${fieldNameMax - 1}}$`);
+const collectionMin = 1;
+const rowGap = { min: 0, max: 8 };
+const textAreaRows = { min: 5, max: 12 };
+
 const text = z.string().max(limits.text);
-const name = z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]{0,63}$/);
+const name = z.string().regex(fieldNamePattern);
 const tone = z.enum(["default", "muted", "accent", "success", "warning", "error"]);
 const finite = z.number().finite();
 const children = z.array(z.any()).max(limits.nodes).describe("Child component calls or references; nested layouts are supported");
@@ -39,7 +45,7 @@ const settings = z.object({ description: text.optional(), required: z.boolean().
 const numberSettings = settings.extend({ min: finite.optional(), max: finite.optional(), step: finite.positive().optional() });
 const dateSettings = settings.extend({ minDate: text.optional(), maxDate: text.optional() });
 const option = z.object({ value: text, label: text, description: text.optional(), disabled: z.boolean().optional() });
-const options = z.array(z.union([text, option])).min(1).max(limits.options);
+const options = z.array(z.union([text, option])).min(collectionMin).max(limits.options);
 const scalar = z.union([text, finite, z.boolean(), z.null()]);
 const stringBinding = z.string().max(limits.text);
 const booleanBinding = z.boolean();
@@ -56,7 +62,7 @@ const treeNodeSchema: z.ZodType<TreeNode> = z.lazy(() => z.object({
   disabled: z.boolean().optional(),
   children: z.array(treeNodeSchema).max(limits.treeNodes).optional(),
 }));
-const pages = z.array(z.object({ value: text, label: text, children })).min(1).max(limits.options);
+const pages = z.array(z.object({ value: text, label: text, children })).min(collectionMin).max(limits.options);
 
 /** Property order is the public positional OpenUI Lang signature. */
 export const componentSpecs = {
@@ -65,11 +71,11 @@ export const componentSpecs = {
   Select: z.object({ name, label: text, options, value: stringBinding, settings: settings.optional() }),
   Input: z.object({ name, label: text, value: stringBinding, placeholder: text.optional(), settings: settings.optional() }),
   Button: z.object({ label: text, action: z.union([name, action()]), settings: z.object({ variant: z.enum(["primary", "secondary", "danger"]).optional(), disabled: z.boolean().optional(), description: text.optional() }).optional() }),
-  Table: z.object({ columns: z.array(text).min(1).max(limits.columns), rows: z.array(z.array(scalar).max(limits.columns)).max(limits.rows) }),
+  Table: z.object({ columns: z.array(text).min(collectionMin).max(limits.columns), rows: z.array(z.array(scalar).max(limits.columns)).max(limits.rows) }),
   Checkbox: z.object({ name, label: text, value: booleanBinding, settings: settings.optional() }),
   MultiSelect: z.object({ name, label: text, options, value: multipleBinding, settings: settings.optional() }),
-  TextArea: z.object({ name, label: text, value: stringBinding, placeholder: text.optional(), settings: settings.extend({ rows: z.number().int().min(5).max(12).optional() }).optional() }),
-  Row: z.object({ children, settings: z.object({ gap: z.number().int().min(0).max(8).optional() }).optional() }),
+  TextArea: z.object({ name, label: text, value: stringBinding, placeholder: text.optional(), settings: settings.extend({ rows: z.number().int().min(textAreaRows.min).max(textAreaRows.max).optional() }).optional() }),
+  Row: z.object({ children, settings: z.object({ gap: z.number().int().min(rowGap.min).max(rowGap.max).optional() }).optional() }),
   Section: z.object({ title: text, children, settings: z.object({ description: text.optional(), tone: tone.optional() }).optional() }),
   Card: z.object({ title: text, children, settings: z.object({ description: text.optional(), tone: tone.optional() }).optional() }),
   Divider: z.object({ label: text.optional() }),
@@ -84,36 +90,36 @@ export const componentSpecs = {
   Toggle: z.object({ name, label: text, value: booleanBinding, settings: settings.optional() }),
   Slider: z.object({ name, label: text, value: numberBinding, min: finite, max: finite, step: finite.positive().optional(), settings: settings.optional() }),
   DatePicker: z.object({ name, label: text, value: stringBinding, settings: dateSettings.optional() }),
-  Tree: z.object({ name, label: text, nodes: z.array(treeNodeSchema).min(1).max(limits.treeNodes), value: stringBinding, settings: settings.optional() }),
+  Tree: z.object({ name, label: text, nodes: z.array(treeNodeSchema).min(collectionMin).max(limits.treeNodes), value: stringBinding, settings: settings.optional() }),
 };
 export type ComponentName = keyof typeof componentSpecs;
 
 export const descriptions: Record<ComponentName, string> = {
   Text: "Plain terminal text with optional semantic tone, bold, and italic styling. Reactive expressions are evaluated before rendering.",
   Stack: "Vertical component layout. Children can use any supplied component or nested layout.",
-  Select: "Single-choice list. Options are strings or {value,label,description?,disabled?}. Bind value to a declared string $variable.",
+  Select: `Single-choice list. Provide ${collectionMin} through ${limits.options} options, as strings or {value,label,description?,disabled?}. Bind value to a declared string $variable.`,
   Input: "Single-line string input. Name uniquely identifies the field; value can bind to a $variable. Optional placeholder precedes settings.",
   Button: "Run local @Set/@Reset actions without closing. In collect mode, @ToAssistant or a legacy action identifier submits. Local mode forbids submission paths; Action([...]) may sequence only Set/Reset there.",
-  Table: "Read-only table. Every row has exactly as many scalar cells as columns.",
+  Table: `Read-only table with ${collectionMin} through ${limits.columns} columns and at most ${limits.rows} rows. Every row has exactly as many scalar cells as columns.`,
   Checkbox: "Boolean check box. A required checkbox must be checked before submission.",
-  MultiSelect: "Multiple-choice list. Options are strings or {value,label,description?,disabled?}; value is an array of selected option values.",
-  TextArea: "Multiline string input. Optional settings.rows sets its maximum visible viewport height from 5 through 12 rows; placeholder precedes settings.",
-  Row: "Horizontal component layout that adapts to narrow terminals. Optional gap is a nonnegative integer number of columns.",
+  MultiSelect: `Multiple-choice list. Provide ${collectionMin} through ${limits.options} options, as strings or {value,label,description?,disabled?}; value is an array of selected option values. Use [] for an empty selection, not an empty options list.`,
+  TextArea: `Multiline string input. Optional settings.rows is an integer from ${textAreaRows.min} through ${textAreaRows.max}, setting the maximum visible viewport height; placeholder precedes settings.`,
+  Row: `Horizontal component layout that adapts to narrow terminals. Optional settings.gap is an integer from ${rowGap.min} through ${rowGap.max} columns.`,
   Section: "Titled group of components with optional description and semantic tone.",
   Card: "Visually enclosed titled group of components with optional description and semantic tone.",
   Divider: "Horizontal divider with an optional short label.",
-  Tabs: "Tabbed component pages. Items are {value,label,children}; the bound string value selects the visible page. All pages participate in validation and submission.",
-  Steps: "Sequential component pages. Items are {value,label,children}; the bound string value selects the visible step. All steps participate in validation and submission.",
+  Tabs: `Tabbed component pages. Provide ${collectionMin} through ${limits.options} items shaped {value,label,children}; the bound string value selects the visible page. All pages participate in validation and submission.`,
+  Steps: `Sequential component pages. Provide ${collectionMin} through ${limits.options} items shaped {value,label,children}; the bound string value selects the visible step. All steps participate in validation and submission.`,
   Markdown: "Terminal-rendered Markdown text; no HTML or browser is used.",
   CodeBlock: "Monospaced source code with an optional language label.",
-  List: "List of strings. Set ordered to true for numbered items.",
+  List: `List of at most ${limits.rows} strings. Set ordered to true for numbered items.`,
   Badge: "Compact text label with an optional semantic tone; the default tone is accent.",
-  Progress: "Numeric progress indicator. max defaults to 100; value ranges from zero through max. Optional label describes the measurement.",
+  Progress: "Numeric progress indicator. max must be strictly positive when supplied and defaults to 100; value ranges from zero through max. Optional label describes the measurement.",
   NumberInput: "Finite numeric input. Optional settings.min/max constrain range and settings.step controls increment size.",
   Toggle: "Boolean on/off control. Its value can bind to a declared boolean $variable.",
   Slider: "Finite numeric control with explicit min/max, optional positive step, and optional common field settings.",
-  DatePicker: "Date input using a YYYY-MM-DD string; empty string is allowed when optional. Optional minDate/maxDate use the same format.",
-  Tree: "Single selection from recursive nodes {value,label,children?,description?,disabled?}. All values must be unique; disabled parent nodes disable descendants.",
+  DatePicker: "Date input using a YYYY-MM-DD string; empty string is allowed when optional. Optional minDate/maxDate use the same format and must satisfy minDate <= maxDate when both are supplied.",
+  Tree: `Single selection from recursive nodes {value,label,children?,description?,disabled?}. Provide ${collectionMin} through ${limits.treeNodes} root nodes, at most ${limits.treeNodes} total nodes and depth ${limits.treeDepth}; child arrays may be empty. All values must be unique; disabled parent nodes disable descendants.`,
 };
 
 export const library = createLibrary({
@@ -129,20 +135,23 @@ export const systemPrompt = library.prompt({
   additionalRules: [
     "Use UI proactively when choosing, comparing, inspecting or adjusting inputs improves the task; an explicit UI request is not required. Follow the user's preferred medium. Use prose for simple facts and short explanations. Display-only documents render inline without waiting; do not add acknowledgement buttons merely to show content.",
     "Choose among three contracts: a display-only document returns status displayed immediately; interaction: local mounts an interactive transcript widget and returns status mounted plus widgetId immediately without values; default interaction or interaction: collect waits for a submitted/cancelled answer when controls are present. Removing Submit does not make a collect-mode document nonblocking. Use local for optional calculators, comparisons, tabs, trees and expandable explanations when no answer must reach the agent; the worker-cost example below uses interaction: local.",
-    "show_ui accepts presentation: auto (default), inline, or fullscreen. Local mode requires auto/inline and rejects fullscreen; its composer stays available and widgets remain interactive across later chat/turns. In collect mode prefer auto/inline; reserve fullscreen for requested or dense inspection and use F2 to expand/collapse without losing edits. Displayed and mounted are neither a user choice nor approval.",
+    "show_ui accepts presentation: auto (default), inline, or fullscreen. Local mode requires auto/inline and rejects fullscreen; its composer stays available and widgets remain interactive across later chat/turns. Local widgets start compact; F2 while focused or the header control expands/collapses their height within the transcript without sending values. In collect mode prefer auto/inline; reserve fullscreen for requested or dense inspection and use F2 to expand/collapse without losing edits. Displayed and mounted are neither a user choice nor approval.",
     "Choose the interaction pattern first, then the smallest supported component composition: purpose, essential controls, visible consequences or comparison, and a final action only when collecting an answer. Reuse known answers and sensible defaults. Read the openui skill, when available, for design recipes; these schemas remain the authoritative signatures.",
     "Ground displayed facts in user context or tool results; label illustrative numbers and assumptions, preserve units, and never fabricate measured progress or completed work. For scenario exploration, bind controls to derived Text/Table/Progress expressions so consequences update locally. Local widgets never forward edited values or invoke tools. Use a separate collect-mode workflow when the agent needs an answer before fetching new data or performing external work.",
-    "The show_ui tool accepts optional summary: {title, fields}. Use a short neutral title and an ordered array of field names for the human-readable receipt. Summary hints do not filter a submitted structured result; for local mode summary.title names the widget and summary.fields does not export local edits. Pi chooses status and theme automatically. A submitted form confirms receipt of user input, not execution of the requested work.",
+    "The show_ui tool accepts optional summary: {title, fields}. Use a short neutral title and an ordered array of field names for the human-readable receipt. Summary hints do not filter a submitted structured result; for local mode summary.title supplies the single widget header and summary.fields does not export local edits. Start a local document with useful context or controls instead of repeating its header title as the first Text/Markdown heading; retain headings for distinct internal sections. Pi chooses status and theme automatically. A submitted form confirms receipt of user input, not execution of the requested work.",
     "Always declare root = Stack([...]). Use only supplied components. Layout children and each Tabs/Steps item's children must be component calls or references.",
+    `Field names are data keys, not display labels. They match ${fieldNamePattern.source} and contain at most ${fieldNameMax} characters, for example deployment_region. Legacy action identifiers use the same name schema.`,
+    `Text-bearing strings contain at most ${limits.text} characters, including labels, text, code, placeholders, descriptions, errors, option/page/tree values, string field values, list items and table string cells. Field names have their separate restriction.`,
     "All field names, including Tabs and Steps, must be unique across the entire document. Bind values to declared $variables of the right type: strings for text, dates and single selection; booleans for Checkbox/Toggle; numbers for NumberInput/Slider; string arrays for MultiSelect.",
     "Select/MultiSelect option values, Tree node values, and Tabs/Steps item values must be unique. Single selections must identify an existing option. MultiSelect values must be a unique subset of option values. Disabled options cannot be selected by the user.",
     "Common optional field settings are {description, required, disabled, error}. Required or explicit-error fields remain editable, but enabled fields with validation errors block submission even on hidden pages. Input/TextArea placeholder precedes settings; use null for an omitted placeholder when supplying settings.",
     "Use optional styling settings sparingly: Text tone/bold/italic; Button variant primary/secondary/danger; Section/Card tone/description; Row gap. Tones are default, muted, accent, success, warning, or error. Badge defaults to accent.",
     "Button actions support @Set($variable, value), @Reset($variable, ...), @ToAssistant(message, context?), and ordered Action([...]) with at most 32 steps. Set/Reset are local updates. In collect mode, @ToAssistant submits current fields/state and closes the form; use at most one, last in the plan. Local mode rejects ToAssistant and legacy string submissions even on hidden/conditional paths; Action may contain only Set/Reset, and dynamic unprovable action sources are rejected.",
     "Declare every @Set/@Reset target with $variable = default before using it. Reset requires at least one target. All steps commit together only if the resulting UI remains valid; otherwise state is unchanged. Legacy Button(label, \"submit\") is supported only in collect mode. Query, Mutation, @Run, @OpenUrl, custom actions, URLs, scripts and external tools are unsupported.",
-    "Table rows contain strings, numbers, booleans or null and match the column count. Numeric ranges must have min <= max and positive steps. Progress max defaults to 100. Dates and date bounds use valid YYYY-MM-DD calendar dates. Tree supports at most 200 total nodes and depth 16. Keep documents compact for a terminal.",
-    "In collect mode Escape/Ctrl+C closes the form and returns status cancelled normally; the caller resumes without notebook restart. Only submitted contains user choices. Do not treat defaults as answers or reopen a cancelled form. Local mode returns mounted once and never forwards edits on blur, close or later chat; continue independently authorized work without waiting for a later result. F6 transfers focus between chat and a local widget, Shift+F6 cycles widgets, and Escape/Ctrl+C returns to chat. /openui-focus [id] selects a widget; /openui-close [id] dismisses it without sending values. Local widgets mount from completed source only; explicit collect streaming previews remain read-only until valid.",
-    "Each local widget owns independent live state across turns. Session navigation/shutdown disposes it; reopening/replaying a branch reconstructs original source/defaults, not edited values or cursor state. Compaction disposes widgets whose transcript rows are removed; up to 16 widgets may remain live. Local exploration is not durable answer storage. Use a collect-mode form when a saved user choice is required.",
+    "Table rows contain strings, numbers, booleans or null and match the column count. Numeric ranges must have min <= max and positive steps. Dates and date bounds use valid YYYY-MM-DD calendar dates. Keep documents compact for a terminal.",
+    "In collect mode Escape/Ctrl+C closes the form and returns status cancelled normally; the caller resumes without notebook restart. Only submitted contains user choices. Do not treat defaults as answers or reopen a cancelled form. Local mode returns mounted once and never forwards edits on blur, close or later chat; continue independently authorized work without waiting for a later result. F6 transfers focus between chat and a local widget, Shift+F6 cycles widgets, F2 expands/collapses its inline height, and Escape/Ctrl+C returns to chat. /openui-focus [id] selects a widget; /openui-close [id] dismisses it without sending values. Local widgets mount from completed source only; explicit collect streaming previews remain read-only until valid.",
+    "Hide/Restore are host presentation controls, not generated OpenUI actions. Hide retains live values, drafts, tabs/steps, scroll and expanded height in a one-line placeholder; Restore resumes and focuses the same widget. Hidden widgets leave the status hint and F6/Shift+F6 cycle. /openui-hide [id] hides a visible widget; /openui-restore [id] restores the most recently hidden widget when no id is supplied. Close permanently disposes a visible or hidden widget. Hide/Restore sends no values and invokes no tool/model call.",
+    "Each local widget owns independent live state across turns. Session navigation/shutdown disposes it; reopening/replaying a branch reconstructs original source/defaults, visible and compact, not edited values, cursor state, expansion or hidden state. Compaction disposes widgets whose transcript rows are removed; up to 16 widgets may remain live, including hidden widgets. Local exploration is not durable answer storage. Use a collect-mode form when a saved user choice is required.",
   ],
   examples: [
     '$choice = "One"\n$note = ""\nroot = Stack([Text("Choose an option"), Select("choice", "Choice", ["One", "Two"], $choice), Input("note", "Note", $note, "Optional"), Button("Reset", @Reset($choice, $note)), Button("Submit", @ToAssistant("Use my choices", {choice: $choice, note: $note}))])',

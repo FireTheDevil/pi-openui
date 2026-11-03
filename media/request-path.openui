@@ -1,0 +1,28 @@
+$stage = "auth";
+$hit = false;
+root = Stack([
+  Text("Follow an example API request. Change the cache outcome to see why the path changes.", {tone: "muted"}),
+  Steps("stage", [
+    {value: "auth", label: "Authenticate", children: [
+      Badge("Identity boundary", "accent"),
+      CodeBlock("CLIENT ──▶ [ AUTH ] ──▶ CACHE ──▶ DATABASE", "text"),
+      Markdown("**Check identity before touching application data.** A valid token supplies the caller and their permissions."),
+      List(["Invalid token: return 401 here", "Valid token: continue with a trusted caller ID"]),
+      CodeBlock("const caller = verifyToken(request.token);\nreturn next({ caller });", "typescript")
+    ]},
+    {value: "cache", label: "Check cache", children: [
+      Toggle("hit", "Simulate a cache hit", $hit),
+      Badge($hit ? "Database skipped" : "Database needed", $hit ? "success" : "warning"),
+      CodeBlock($hit ? "AUTH ──▶ [ CACHE HIT ] ──▶ RESPONSE\n                  DATABASE is not called" : "AUTH ──▶ [ CACHE MISS ] ──▶ DATABASE ──▶ RESPONSE", "text"),
+      Markdown($hit ? "**Return the cached response.** The request avoids a database round trip." : "**Load the record, then populate the cache.** The next identical request may take the shorter path."),
+      CodeBlock("const cached = await cache.get(key);\nif (cached) return cached;\nreturn loadAndCache(key);", "typescript")
+    ]},
+    {value: "store", label: "Load & respond", children: [
+      Badge("Durable data boundary", "accent"),
+      CodeBlock("CACHE MISS ──▶ [ DATABASE ] ──▶ CACHE WRITE ──▶ RESPONSE", "text"),
+      Markdown("**The database is the source of truth.** Cache the successful result briefly; never cache a permission failure."),
+      List(["Query with the verified caller's access rules", "Store a short-lived copy for repeated reads", "Return the same response shape on hits and misses"]),
+      CodeBlock("const row = await db.findVisible(key, caller);\nawait cache.set(key, row, { ttl: 60 });\nreturn row;", "typescript")
+    ]}
+  ], $stage)
+]);
