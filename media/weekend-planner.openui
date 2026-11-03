@@ -1,0 +1,23 @@
+$date = "2026-11-07";
+$host = "";
+$activities = ["walk"];
+$backup = true;
+root = Stack([
+  Text("Example outing · pick a day and activities. Pi will suggest a plan; nothing is booked.", {tone: "muted"}),
+  Row([
+    Section("When and who", [
+      DatePicker("date", "Our day out", $date, {minDate: "2026-11-03", maxDate: "2026-12-31"}),
+      Input("host", "Organised by", $host, "Name", {required: true})
+    ]),
+    Section("Make it our kind of day", [
+      MultiSelect("activities", "What sounds good?", [
+        {value: "walk", label: "Park walk"},
+        {value: "picnic", label: "Picnic lunch"},
+        {value: "museum", label: "Museum visit"}
+      ], $activities, {required: true}),
+      Toggle("backup", "Include an indoor backup", $backup),
+      Text("Leave time between activities to relax.", {tone: "muted"})
+    ])
+  ]),
+  Button("Build our day plan", @ToAssistant("Suggest a relaxed day plan from these choices, including a weather backup if requested. Do not book anything.", {date: $date, host: $host, activities: $activities, backup: $backup}), {variant: "primary"})
+]);

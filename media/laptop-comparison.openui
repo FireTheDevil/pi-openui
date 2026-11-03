@@ -1,0 +1,14 @@
+$priority = "travel";
+recommended = $priority == "value" ? "swift" : $priority == "video" ? "forge" : "aster";
+reason = $priority == "value" ? "Swift saves $400 versus Aster while keeping 16 GB of memory." : $priority == "video" ? "Forge trades weight and price for more memory and a dedicated GPU." : "Aster is the easiest to carry. The premium buys portability, not more memory.";
+root = Stack([
+  Text("Illustrative comparison · fictional laptops and prices, not current buying advice", {tone: "muted"}),
+  Select("priority", "What matters most?", [{value:"travel",label:"Travel light"},{value:"value",label:"Best value"},{value:"video",label:"Video editing"}], $priority),
+  Row([
+    Card("Aster · $1,299", [Badge(recommended == "aster" ? "Best fit" : "Option", recommended == "aster" ? "success" : "muted"), Text("1.0 kg · 16 GB RAM\nIntegrated graphics")]),
+    Card("Swift · $899", [Badge(recommended == "swift" ? "Best fit" : "Option", recommended == "swift" ? "success" : "muted"), Text("1.5 kg · 16 GB RAM\nIntegrated graphics")]),
+    Card("Forge · $1,799", [Badge(recommended == "forge" ? "Best fit" : "Option", recommended == "forge" ? "success" : "muted"), Text("2.2 kg · 32 GB RAM\nDedicated GPU")])
+  ]),
+  Section("Why this choice", [Markdown(reason)]),
+  Table(["Trade-off", "Aster", "Swift", "Forge"], [["Portability", "Highest", "Middle", "Lowest"], ["Price", "$1,299", "$899", "$1,799"]])
+]);

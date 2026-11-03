@@ -2,6 +2,16 @@
 
 An OpenUI Lang extension for **Pi 1.4+**, using `@openuidev/lang-core` 1.0.2 and Pi's host-provided `@earendil-works/pi-tui`. No React, browser, webview, or separate terminal loop.
 
+## See it in Pi
+
+[![Six interactive Pi responses: code, failures, comparisons, scenarios, walkthroughs and planning](https://raw.githubusercontent.com/FireTheDevil/pi-openui/6041f69177f5f8c68dbb43616d8dc27c05fa09e9/media/openui-demo-preview.gif)](https://raw.githubusercontent.com/FireTheDevil/pi-openui/6041f69177f5f8c68dbb43616d8dc27c05fa09e9/media/openui-demo.mp4)
+
+[Download the full video (MP4, 83 seconds)](https://raw.githubusercontent.com/FireTheDevil/pi-openui/6041f69177f5f8c68dbb43616d8dc27c05fa09e9/media/openui-demo.mp4) · [Six example sources and recording notes](https://github.com/FireTheDevil/pi-openui/blob/6041f69177f5f8c68dbb43616d8dc27c05fa09e9/media/README.md)
+
+Explore code and failure diagnoses, compare laptop trade-offs, simulate heating costs, step through a request, then submit a weekend plan that shapes Pi's next response. Six scenes combine 22 components; the heating explorer also shows Hide and Restore with edits intact.
+
+Recorded in actual Pi using model-authored OpenUI documents and deterministic provider replay, without external LLM calls. Example data is illustrative. The 15-second preview samples every scene.
+
 ## Project status
 
 This version is **fully vibe coded so far**: its implementation was generated with AI assistance. Automated checks and local testing do not guarantee correctness; review it for your use case and report issues on [GitHub](https://github.com/FireTheDevil/pi-openui/issues).
@@ -100,7 +110,9 @@ Submission continues the current agent turn without injecting a duplicate user m
 
 Use inline displays for tables, explanations and code excerpts that need no acknowledgement. Use `presentation: "fullscreen"` for an explicitly requested expanded view or dense inspection. In a fullscreen display-only document, Enter closes the view and leaves the content inline; Escape returns a cancelled result. This does not add chart or Mermaid components to the catalog. See [inline presentation and cancellation](docs/inline-ui.md).
 
-Use local widgets for calculators, comparisons, Tabs, Trees and expandable explanations when no result is needed by the agent. F6 transfers focus between chat and the widget; Shift+F6 cycles widgets. F2 or the header control expands/collapses a local widget within the transcript. Escape/Ctrl+C returns focus to chat, while `/openui-close [id]` dismisses one. Edits, expansion, reset, blur, later chat and dismissal never send values to the model or start a tool. Only Set/Reset actions and local sequences are accepted. Widgets keep independent live state across turns; reopening or replaying a session restores original defaults and compact height rather than edited values or expansion state. See [local interaction, lifecycle and the hosting explorer](docs/local-interaction.md).
+Use local widgets for calculators, comparisons, Tabs, Trees and expandable explanations when no result is needed by the agent. F6 transfers focus between chat and the widget; Shift+F6 cycles widgets. F2 or the header control expands/collapses a local widget within the transcript. Escape/Ctrl+C returns focus to chat, while `/openui-close [id]` dismisses one. Edits, expansion, reset, blur, later chat and dismissal never send values to the model or start a tool. Only Set/Reset actions and local sequences are accepted. Widgets keep independent live state across turns; reopening or replaying a session restores original defaults, visible and compact, rather than edited values or presentation state. See [local interaction, lifecycle and the hosting explorer](docs/local-interaction.md).
+
+Hide, beside Close, reduces a local widget to a one-line placeholder while retaining its live values, drafts, tab/step, scroll position and expanded height. Restore resumes that widget; Close permanently dismisses it. Keyboard users can run `/openui-hide [id]` and `/openui-restore [id]`; restore without an ID selects the most recently hidden widget. Hidden widgets leave the status hint and F6/Shift+F6 cycle, but their Restore action remains in the transcript. Hiding and restoring never submit values or start model/tool calls.
 
 ## Submission summaries
 

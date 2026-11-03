@@ -2,6 +2,26 @@
 
 Recorded release checks and their scope. These results do not guarantee behavior with every model or environment.
 
+## README showcase — six interactive responses (2026-11-03)
+
+Six model-authored OpenUI documents passed parsing, rendering and keyboard checks against the combined development preview of PRs #9, #10 and #12. Five local documents passed local-action validation; state changes produced the expected code explanations, filtered failure results, comparison recommendation, heating estimate and request-path details without submitting. The planner returned its exact typed date, name, activities and backup preference.
+
+Six isolated actual Pi 1.4.0 fullscreen CLI sessions on Linux and Node 24.19.0 passed the corresponding keyboard/mouse interactions in the dark theme. Each scene made one `show_ui` call. Local interaction made no further tool/provider calls. Hide/Restore retained the heating example’s edited $54 estimate. The planner stayed pending while editing and its follow-up used the actual submitted values. All source files were stable during capture; normal user configuration was unchanged.
+
+The 82.75-second H.264 video and 15-second GIF montage passed decode and visual checks. An npm pack dry-run retained the 59 intended package files and excluded all media.
+
+The recording uses explicitly labelled deterministic provider replay, without external LLM calls. Its illustrative data and fixed examples verify runtime interaction, not live-model generation quality. Production code was unchanged; the unit suite, code/notebook compatibility matrix and clean installation were not repeated for this media revision. See the [recording notes and example sources](https://github.com/FireTheDevil/pi-openui/tree/6041f69177f5f8c68dbb43616d8dc27c05fa09e9/media).
+
+## Issue #11 — hide and restore local widgets (2026-11-03)
+
+The `feat/local-widget-hide` branch passed type checking and all 236 existing core tests on Linux with Node 24.19.0 and the Pi 1.4.0 development baseline. An ad hoc component check covered 44 visible/hidden width cases from 1–120 columns, one-line placeholders, command completion and restore order, visible-only focus cycling/status, permanent Close, replay defaults and reacquisition of a replacement composer while all widgets were hidden. No new unit tests were added.
+
+Actual fullscreen CLI checks passed on Pi 1.4.0 in dark and light themes and Pi 1.5.0 in the dark theme. Mouse and command Hide/Restore preserved edited values, text drafts/cursors, tabs/steps, expanded height and internal scroll position. Checks covered older widgets, independent placeholders, restore without an ID, hidden-widget focus hints, normal chat with every widget hidden, narrow 36-column layouts, cancelled mouse drags, permanent dismissal of hidden widgets, replay to visible/compact defaults and a subsequent static UI call. Hide/Restore emitted no additional tool/provider calls or edited values.
+
+Live testing found that restoring an older expanded widget could focus it while Pi's stale transcript extent kept it offscreen. Restore now refreshes the host's public layout before revealing the widget; command and mouse restoration both passed afterward. The replacement-editor case also passed after all status rows had been removed.
+
+These checks used fresh model-authored OpenUI documents dispatched through a deterministic provider and actual PTY keyboard/mouse input. No external LLM calls were made. They verify runtime behavior rather than external-model UI-generation quality. The native-code/conversion notebook CLI matrix and clean tarball installation were not repeated; earlier results retain their original scope. Hide retains live state only: session reload/replay still restores original values, visible and compact, as described in the [hide and restore guide](local-interaction.md#hide-and-restore).
+
 ## Issue #6 — inline local-widget expansion (2026-11-03)
 
 The `feat/local-widget-expansion` branch passed type checking and all 236 existing core tests on Linux with Node 24.19.0 and the Pi 1.4.0 development baseline. An ad hoc component check covered 70 viewport-size combinations from 1–100 columns and 5–80 terminal rows, header mouse targets, drag cancellation, overflow feedback, paging and collapse after scrolling. No new unit tests were added.

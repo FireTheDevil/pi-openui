@@ -1,0 +1,23 @@
+$hours = 4;
+$days = 30;
+$save = false;
+base = $hours * $days;
+energy = $save ? base * 3 / 4 : base;
+cost = energy / 5;
+budget = cost < 60 ? cost : 60;
+root = Stack([
+  Text("Illustrative 1 kW heater · $0.20/kWh · excludes other appliances and fees", {tone: "muted"}),
+  Row([
+    Slider("hours", "Hours per day", $hours, 1, 12, 1),
+    NumberInput("days", "Days used", $days, {min: 1, max: 31, step: 1})
+  ]),
+  Toggle("save", "Use 25% less energy", $save),
+  Divider("The effect"),
+  Progress(budget, 60, "Estimated cost: $" + cost + " / $60 budget"),
+  Badge(cost > 60 ? "$" + (cost - 60) + " over budget" : "$" + (60 - cost) + " below budget", cost > 60 ? "warning" : "success"),
+  Row([
+    Card("Electricity used", [Text("" + energy + " kWh", {bold: true}), Text($save ? "The lower-use scenario assumes 25% savings." : "Power × hours × days gives energy used.", {tone: "muted"})]),
+    Card("Savings this scenario", [Text("$" + (base / 5 - cost), {bold: true}), Text("Change hours or days to explore your habits.", {tone: "muted"})])
+  ]),
+  Button("Reset scenario", @Reset($hours, $days, $save))
+]);

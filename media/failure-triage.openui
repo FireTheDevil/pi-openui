@@ -1,0 +1,16 @@
+$filter = "all";
+$failure = "auth";
+rows = $filter == "failed" ? [["auth / expired-token", "FAIL", "API"], ["billing / rounding", "FAIL", "Billing"]] : $filter == "flaky" ? [["search / timeout", "FLAKY", "Search"]] : [["auth / login", "PASS", "API"], ["auth / expired-token", "FAIL", "API"], ["billing / rounding", "FAIL", "Billing"], ["billing / refund", "PASS", "Billing"], ["search / timeout", "FLAKY", "Search"], ["search / indexing", "PASS", "Search"]];
+reason = $failure == "auth" ? "Expired tokens were accepted because expiry was compared in mixed units." : "Round once at the currency boundary.";
+fix = $failure == "auth" ? "const nowSeconds = Math.floor(Date.now() / 1000);\nif (claims.exp <= nowSeconds) throw unauthorized();" : "const totalCents = Math.round(unitPrice * quantity * 100);\nreturn totalCents / 100;";
+root = Stack([
+  Text("Recorded example results · filtering does not rerun tests", {tone: "muted"}),
+  Row([
+    Select("filter", "Show results", [{value:"all",label:"All checks"},{value:"failed",label:"Failures only"},{value:"flaky",label:"Flaky only"}], $filter),
+    Select("failure", "Inspect a failure", [{value:"auth",label:"Expired token"},{value:"billing",label:"Invoice rounding"}], $failure)
+  ]),
+  Progress(3, 6, "Passing checks: 3 / 6"),
+  Badge($filter == "all" ? "6 recorded checks" : $filter == "failed" ? "2 failing checks" : "1 flaky check", $filter == "failed" ? "error" : "warning"),
+  Table(["Check", "Result", "Area"], rows),
+  Card("Diagnosis and candidate fix", [Text(reason), CodeBlock(fix, "typescript")])
+]);

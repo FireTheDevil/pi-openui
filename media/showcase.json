@@ -1,0 +1,50 @@
+[
+  {
+    "id": "code",
+    "title": "Explore the checkout path",
+    "prompt": "Show me how checkout works. Let me inspect the important code.",
+    "interaction": "local",
+    "sourceFile": "code-explorer.openui",
+    "caption": "Explore an explanation by choosing the code you care about."
+  },
+  {
+    "id": "triage",
+    "title": "Find the next useful fix",
+    "prompt": "Help me triage these example test results. I want to inspect the failures.",
+    "interaction": "local",
+    "sourceFile": "failure-triage.openui",
+    "caption": "Filter results, inspect a failure, and focus on a concrete fix."
+  },
+  {
+    "id": "decision",
+    "title": "Choose the laptop that fits",
+    "prompt": "Help me choose a laptop. Let me explore the trade-offs.",
+    "interaction": "local",
+    "sourceFile": "laptop-comparison.openui",
+    "caption": "Change the priority and see the recommendation move."
+  },
+  {
+    "id": "capacity",
+    "title": "Explore a heating bill",
+    "prompt": "Show how my heater use changes the electricity bill.",
+    "interaction": "local",
+    "sourceFile": "heating-bill.openui",
+    "caption": "Move a control, see the impact, and test a lower-use scenario."
+  },
+  {
+    "id": "request-path",
+    "title": "Why does a cache hit change the request path?",
+    "prompt": "Walk me through this API request. Let me explore a cache hit versus a miss.",
+    "interaction": "local",
+    "sourceFile": "request-path.openui",
+    "caption": "Step through an explanation and simulate a different path."
+  },
+  {
+    "id": "weekend-planner",
+    "title": "Plan a relaxed day together",
+    "prompt": "Help me plan a relaxed day with friends. Let me choose the date and activities, then turn my choices into a day plan.",
+    "interaction": "collect",
+    "sourceFile": "weekend-planner.openui",
+    "caption": "Choose a date and activities; Pi turns the submitted choices into a plan."
+  }
+]
