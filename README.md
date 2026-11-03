@@ -1,6 +1,8 @@
 # Pi OpenUI
 
-An OpenUI Lang extension for **Pi 1.4+**, using `@openuidev/lang-core` 1.0.2 and Pi's host-provided `@earendil-works/pi-tui`. No React, browser, webview, or separate terminal loop.
+A terminal component library and OpenUI Lang extension for **Pi 1.4+**. Pi's model can compose interactive forms, comparisons and explorers that render in Pi's native terminal UI.
+
+Uses `@openuidev/lang-core` 1.0.2 and Pi's host-provided `@earendil-works/pi-tui`. No React, browser, webview, or separate terminal loop.
 
 ## See it in Pi
 
@@ -11,6 +13,29 @@ An OpenUI Lang extension for **Pi 1.4+**, using `@openuidev/lang-core` 1.0.2 and
 Explore code and failure diagnoses, compare laptop trade-offs, simulate heating costs, step through a request, then submit a weekend plan that shapes Pi's next response. Six scenes combine 22 components; the heating explorer also shows Hide and Restore with edits intact.
 
 Recorded in actual Pi using model-authored OpenUI documents and deterministic provider replay, without external LLM calls. Example data is illustrative. The 15-second preview samples every scene.
+
+## Where pi-openui fits
+
+[OpenUI](https://github.com/thesysdev/openui) lets an LLM compose interfaces from a registered component library. Developers implement the components; the model generates an **OpenUI Lang document** describing their content, layout, state and actions. The chosen library determines which components the model can use.
+
+`@openuidev/lang-core` provides the framework-neutral APIs for defining that library, generating model instructions, parsing documents and evaluating reactive state. Upstream packages such as `@openuidev/react-ui` and `@openuidev/react-lang` supply web components and a React renderer. **This project supplies the terminal component library and the integration with Pi.**
+
+```mermaid
+flowchart TD
+    Core["OpenUI Lang / lang-core<br/>Library APIs and model prompts<br/>Parsing and state evaluation"]
+    Core -->|used by| Web["Web libraries and renderer<br/>react-ui + react-lang"]
+    Web --> Browser["Browser UI"]
+    Core -->|used by| Extension["pi-openui: this project<br/>25 terminal component specifications<br/>Layouts, input, actions and Pi integration"]
+    Agent["Pi agent / LLM"] -->|OpenUI Lang via show_ui| Extension
+    Extension --> Host["Pi host + pi-tui<br/>Native terminal rendering, theme and events"]
+    Host --> Terminal["Interactive UI inside Pi"]
+```
+
+`pi-openui` registers its catalog with lang-core and supplies the generated component instructions to Pi's model. The model calls `show_ui` with a document; the extension parses and validates it, builds native terminal controls and lets Pi host them. Field edits and local actions update state and redraw the UI. Submitting a collect-mode form returns structured values to the agent; local exploration keeps edits inside the widget. See [interaction contracts](#agent-tool).
+
+The [25-component catalog](docs/components.md) uses Zod schemas supplied to lang-core. OpenUI Lang supports host-defined libraries, so 25 is this project's current catalog size, not a limit of the language. Our terminal-specific signatures are not drop-in replacements for similarly named components in OpenUI's web libraries; the two rendering paths above use their own registered catalogs. Charts, media, rich document editing and browser-specific interactions remain outside this catalog.
+
+[OpenUI CLI](https://github.com/thesysdev/openui/tree/main/packages/openui-cli) is a separate development tool for scaffolding apps and exporting library prompts/specifications. The CLI supports coding agents, including Pi, when running those development commands; the terminal rendering described here is provided by `pi-openui`.
 
 ## Project status
 
@@ -166,10 +191,6 @@ In collect mode, the promise stays pending while the user edits fields or runs l
 This works with native `codemode.mode` set to `on` or `only`. Keep `show_ui` active: `--tools codemode` alone removes it; use `--tools +codemode` or `--tools codemode,show_ui`. A UI invoked inside JavaScript opens when `tools.show_ui()` executes; partial JavaScript source does not produce a UI preview. Direct `show_ui` calls still support incremental argument previews.
 
 The third-party Code/Notebook Mode in `@howaboua/pi-codex-conversion` 4.0.7 exposes the same `await tools.show_ui(...)` call through its tool bridge and returns this tool's structured result. OpenUI keeps a collect-mode call attached to the enclosing execution while waiting for input, including after a yield budget expires. Local-mode calls finish after mounting and do not wait for user interaction. The enclosing execution tool and persistent notebook lifecycle differ from native `codemode`. Cancelling a form returns normally in Code, Deno Notebook, JavaScript Notebook and TypeScript Notebook modes; it requires no notebook restart. See [mode compatibility and cancellation](docs/inline-ui.md#execution-modes) for configuration, tested execution paths and result handling. Native code mode and `/openui-demo` need no such package.
-
-OpenUI Lang accepts host-defined component libraries. These are terminal-specific schemas, not drop-in replacements for the differently shaped components in OpenUI's web libraries.
-
-The catalog is defined with Zod schemas supplied to lang-core. It covers terminal forms, layouts, navigation and structured output; it does not implement every component in OpenUI's separate web libraries. Charts, media, rich document editing and browser-specific interactions remain outside this catalog.
 
 ## Appearance
 
