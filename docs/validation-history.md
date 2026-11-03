@@ -2,6 +2,20 @@
 
 Recorded release checks and their scope. These results do not guarantee behavior with every model or environment.
 
+## Public constraint guidance (2026-11-03)
+
+The constraint-guidance change on `integration/local-widgets-pr9-pr10-pr12`, based on `b94aa2d`, passed `npm run typecheck` and all 236 existing core tests on Node 24.22.1 with the Pi 1.4.0 development baseline and lang-core 1.0.2. No unit tests were added. `git diff --check` passed.
+
+An external ad hoc script compared all 25 native Zod component JSON schemas with the baseline and found exact equality. The library's exported schema differs only in component description annotations. The generated prompt exposes the audited name pattern and 64-character maximum, 4,000-character string limit, collection bounds, integer Row and TextArea settings, Table and List sizes, positive Progress maximum, and ordered date bounds. The existing action section, Button signature, action rules, and required action property are unchanged.
+
+The same script passed 68 valid/invalid `DocumentModel` cases. These cover name syntax and length, legacy identifier length, string length, empty and oversized options/pages/root nodes, fractional and out-of-range Row/TextArea settings, table/list sizes, Progress positivity/default, valid and reversed date bounds, and Tree total-node/depth limits. Reproduce with `node --import tsx /tmp/openui-guidance-fix/check.mts` while the local artifacts remain available.
+
+An actual Pi 1.5.0 fullscreen TUI session loaded the checkout extension through an external deterministic-provider fixture, with only `show_ui` active and native code mode disabled. Both provider calls contained the complete exported `modelPrompt` verbatim. A literal display document returned `status: "displayed"`, and the provider continued. The run used an isolated agent directory and made no external provider calls or user-settings changes. The owned tmux session exited after the capture.
+
+Local evidence is retained in `/tmp/openui-guidance-fix/`. It includes before/after schemas and prompts, `check.mts`, `check-results.json`, `typecheck.log`, `test.log`, `fixture.mjs`, `injected-prompt-1.txt`, `injected-prompt-2.txt`, `tui-events.jsonl`, and `tui-capture.txt`. These artifacts are not shipped. This run checks constraint exposure and integration, not real-model generation quality, package discovery, or the optional compatibility matrix.
+
+The upstream-generated action guidance still advertises unsupported `@OpenUrl` and actionless buttons. [Issue #15](https://github.com/FireTheDevil/pi-openui/issues/15) tracks that deferred contradiction. This change does not claim a fully consistent generated prompt.
+
 ## README showcase — six interactive responses (2026-11-03)
 
 Six model-authored OpenUI documents passed parsing, rendering and keyboard checks against the combined development preview of PRs #9, #10 and #12. Five local documents passed local-action validation; state changes produced the expected code explanations, filtered failure results, comparison recommendation, heating estimate and request-path details without submitting. The planner returned its exact typed date, name, activities and backup preference.

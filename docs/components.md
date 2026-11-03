@@ -24,15 +24,15 @@ Local widgets already display `summary.title` in their header (or “Local explo
 | Tree | `Tree(name, label, nodes, value, settings?)` | selected node's string value |
 | Button | `Button(label, action, settings?)` | runs an action; not a field |
 
-Names must be unique across the entire document, including inactive pages. Bind each field to a declared `$variable` of the appropriate type. Literal initial values also work. Submitted `values` preserve booleans, numbers and string arrays; they are not converted to strings. `state` contains the declared `$variables` and unbound field state.
+Names are data keys, not display labels. They match `^[A-Za-z_][A-Za-z0-9_-]{0,63}$` and contain at most 64 characters, for example `deployment_region`. Legacy action identifiers use the same name schema. Names must be unique across the entire document, including inactive pages. Bind each field to a declared `$variable` of the appropriate type. Literal initial values also work. Submitted `values` preserve booleans, numbers and string arrays; they are not converted to strings. `state` contains the declared `$variables` and unbound field state.
 
 Common field settings are `{description?, required?, disabled?, error?}`. Descriptions provide help below the label. Required values and explicit error messages block submission while keeping the form editable. Required booleans must be true; required multiple selections must contain at least one value. Disabled fields skip keyboard focus and ignore edits; their values are still returned, and their validation errors do not block submission.
 
 Additional settings:
 
-- TextArea: `rows` sets its visible editor height from 5 through 12.
+- TextArea: `rows` is an integer from 5 through 12 that sets its maximum visible editor height.
 - NumberInput: `min`, `max`, and positive `step` constrain and increment the number.
-- DatePicker: `minDate` and `maxDate` use valid `YYYY-MM-DD` dates. Optional dates may be empty. There is no time or timezone field.
+- DatePicker: `minDate` and `maxDate` use valid `YYYY-MM-DD` dates. When both bounds exist, `minDate <= maxDate`. Optional dates may be empty. There is no time or timezone field.
 - Button: `variant` is `primary`, `secondary` or `danger`; `disabled` and `description` are supported. The variant changes appearance, not action behavior.
 
 For Input or TextArea, use `null` when omitting the placeholder but supplying settings: `Input("owner", "Owner", $owner, null, {required: true})`.
@@ -45,9 +45,9 @@ Select and MultiSelect accept strings or rich options:
  {value: "unavailable", label: "Unavailable", disabled: true}]
 ```
 
-Option values must be unique. Labels and descriptions are display text; the stored value is `value`. Disabled options cannot be chosen by the user. A MultiSelect value is a unique subset of the options.
+Select and MultiSelect each require 1 through 200 options. Option values must be unique. A single selection must identify an existing option, even when optional. Use `[]` for an empty MultiSelect selection, not an empty options list. Labels and descriptions are display text; the stored value is `value`. Disabled options cannot be chosen by the user. A MultiSelect value is a unique subset of the options.
 
-Tree nodes use `{value, label, children?, description?, disabled?}` recursively. Values are unique throughout the tree. A disabled parent also disables its descendants. Trees support at most 200 nodes and 16 levels. Expansion is local presentation state; selection is the bound field value.
+Tree nodes use `{value, label, children?, description?, disabled?}` recursively. Values are unique throughout the tree. A disabled parent also disables its descendants. Trees require 1 through 200 root nodes and support at most 200 total nodes and 16 levels. Child arrays may be empty. Expansion is local presentation state; selection is the bound field value.
 
 ## Layout and navigation
 
@@ -61,7 +61,7 @@ Tree nodes use `{value, label, children?, description?, disabled?}` recursively.
 | Tabs | `Tabs(name, items, value, settings?)` | Selectable pages with string state |
 | Steps | `Steps(name, items, value, settings?)` | Ordered workflow pages with string state |
 
-Row settings accept `gap`, an integer from 0 through 8. Section and Card settings accept `description` and `tone`. Tabs and Steps use common field settings. Their items have the shape `{value, label, children}`; values must be unique and the bound value must identify an item.
+Row settings accept `gap`, an integer from 0 through 8. Section and Card settings accept `description` and `tone`. Tabs and Steps use common field settings. Each requires 1 through 200 items with the shape `{value, label, children}`; values must be unique and the bound value must identify an item.
 
 Only the selected page renders and receives focus. All pages still participate in validation and submitted values. A hidden required field can therefore block submission; the view opens its page and focuses the field so the user can correct it. A disabled Tabs or Steps group also disables all its descendants: they cannot receive focus, edits or button activations, and their validation does not block submission. Their values are still returned. Local actions outside the group can update or reset its state. Navigation also works through local actions such as `@Set($page, "advanced")` or `@Reset($step)`.
 
@@ -76,6 +76,8 @@ Only the selected page renders and receives focus. All pages still participate i
 | Badge | `Badge(text, tone?)` | Compact status label; accent tone by default |
 | Progress | `Progress(value, max?, label?)` | Progress from zero through max; max defaults to 100 |
 | Table | `Table(columns, rows)` | Read-only table; scalar cells and equal column counts |
+
+Text-bearing strings contain at most 4,000 characters, including labels, text, code, placeholders, descriptions, errors, option/page/tree values, string field values, list items and table string cells. Names have their separate restriction. Tables require 1 through 20 columns and allow at most 200 rows. Lists allow at most 200 items. Progress `max` must be strictly positive when supplied and defaults to 100.
 
 Tones are `default`, `muted`, `accent`, `success`, `warning` and `error`. Text settings are `{tone?, bold?, italic?}`. Colors come from Pi's active theme. Markdown and code stay in the terminal; no browser, React or webview is involved.
 
