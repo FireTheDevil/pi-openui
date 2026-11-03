@@ -20,20 +20,27 @@ Recorded in actual Pi using model-authored OpenUI documents and deterministic pr
 
 `@openuidev/lang-core` provides the framework-neutral APIs for defining that library, generating model instructions, parsing documents and evaluating reactive state. Upstream packages such as `@openuidev/react-ui` and `@openuidev/react-lang` supply web components and a React renderer. **This project supplies the terminal component library and the integration with Pi.**
 
+`pi-openui` registers its catalog with lang-core and supplies the generated component instructions to Pi's model. For example, when Pi needs you to choose a next step, the flow is:
+
 ```mermaid
 flowchart TD
-    Core["OpenUI Lang / lang-core<br/>Library APIs and model prompts<br/>Parsing and state evaluation"]
-    Core -->|used by| Web["Web libraries and renderer<br/>react-ui + react-lang"]
-    Web --> Browser["Browser UI"]
-    Core -->|used by| Extension["pi-openui: this project<br/>25 terminal component specifications<br/>Layouts, input, actions and Pi integration"]
-    Agent["Pi agent / LLM"] -->|OpenUI Lang via show_ui| Extension
-    Extension --> Host["Pi host + pi-tui<br/>Native terminal rendering, theme and events"]
-    Host --> Terminal["Interactive UI inside Pi"]
+    Model["Pi's model describes a form<br/>Choices: Review, Implement, Test<br/>Plus a Submit button"]
+    Model -->|OpenUI Lang sent to show_ui| Parse
+    subgraph Extension["pi-openui — our extension"]
+        Parse["Parse the document and evaluate state<br/>using upstream lang-core"]
+        Controls["Build the form<br/>using our terminal Select and Button"]
+        Parse --> Controls
+    end
+    Controls --> Host["Pi + pi-tui displays the form<br/>and delivers keyboard / mouse input"]
+    Host --> User["You choose Test and submit"]
+    User -->|Our extension returns your selection| Continue["Pi continues with your answer"]
 ```
 
-`pi-openui` registers its catalog with lang-core and supplies the generated component instructions to Pi's model. The model calls `show_ui` with a document; the extension parses and validates it, builds native terminal controls and lets Pi host them. Field edits and local actions update state and redraw the UI. Submitting a collect-mode form returns structured values to the agent; local exploration keeps edits inside the widget. See [interaction contracts](#agent-tool).
+**Our part is the terminal component library and the glue between the document and Pi.** We implement how Select, Button and the other components look and respond to input, using Pi's terminal runtime. Lang-core supplies the language machinery used inside the extension.
 
-The [25-component catalog](docs/components.md) uses Zod schemas supplied to lang-core. OpenUI Lang supports host-defined libraries, so 25 is this project's current catalog size, not a limit of the language. Our terminal-specific signatures are not drop-in replacements for similarly named components in OpenUI's web libraries; the two rendering paths above use their own registered catalogs. Charts, media, rich document editing and browser-specific interactions remain outside this catalog.
+This example collects an answer: submission returns structured values to the agent. Local explorers return immediately after mounting; subsequent edits update state and redraw the widget without sending values to the model. See [interaction contracts](#agent-tool).
+
+The [25-component catalog](docs/components.md) uses Zod schemas supplied to lang-core. OpenUI Lang supports host-defined libraries, so 25 is this project's current catalog size, not a limit of the language. Our terminal-specific signatures are not drop-in replacements for similarly named components in OpenUI's web libraries. Charts, media, rich document editing and browser-specific interactions remain outside this catalog.
 
 [OpenUI CLI](https://github.com/thesysdev/openui/tree/main/packages/openui-cli) is a separate development tool for scaffolding apps and exporting library prompts/specifications. The CLI supports coding agents, including Pi, when running those development commands; the terminal rendering described here is provided by `pi-openui`.
 
