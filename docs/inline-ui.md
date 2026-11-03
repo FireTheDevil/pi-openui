@@ -9,7 +9,9 @@
 | Default/`interaction: "collect"` with fields, navigation or buttons | Focus a compact native view in Pi's editor area while leaving conversation context visible | Typed `submitted` result after a final action |
 | Explicit `presentation: "fullscreen"` | Open an expanded view for inspection or interaction | Submission for a form; Enter closes display-only content and leaves it inline |
 
-`presentation: "auto"` and `"inline"` both prefer inline content. For collect-mode forms and static inspection, choose fullscreen when the user asks to expand something or sustained inspection needs the space. Local widgets reject fullscreen and have no expansion step. The component catalog is unchanged: fullscreen does not add a chart, Mermaid or browser renderer.
+`presentation: "auto"` and `"inline"` both prefer inline content. For collect-mode forms and static inspection, choose fullscreen when the user asks to expand something or sustained inspection needs the space. Local widgets reject fullscreen presentation; F2 or their header control instead expands/collapses their height within the transcript while chat remains available. The component catalog is unchanged: fullscreen does not add a chart, Mermaid or browser renderer.
+
+Interactive views use the available terminal width with small side margins, rather than a fixed content-width cap.
 
 The [local interaction guide](local-interaction.md) defines persistent interactive widgets: immediate return, F6 focus transfer, local-only actions, multiple-widget state and restart/replay limits. Removing a Submit button from a default form does not enable that mode.
 

@@ -24,9 +24,9 @@ Local widgets start compact. Their header has an Expand/Collapse control, and F2
 
 ## Focus and interaction
 
-The header shows the widget title and Close control. Widget IDs stay out of the title row: obtain an ID from the `mounted` result or focus the widget with F6/Shift+F6 to see it in the status hint below the editor. Both commands accept that ID; omitting it uses the last selected widget.
+The header shows one widget title with Expand/Collapse, Hide and Close controls. Widget IDs stay out of the title row: obtain an ID from the `mounted` result or focus a visible widget with F6/Shift+F6 to see its ID in the status hint below the editor. Commands accept the ID, with the defaults described below when it is omitted.
 
-Mounting never steals keyboard focus. The widget header and status hint identify its local interaction mode. Use:
+Mounting never steals keyboard focus. Widgets use the available terminal width, with small side margins and no fixed content-width cap. The widget header and status hint identify its local interaction mode. Use:
 
 | Action | Shortcut or command |
 | --- | --- |
@@ -39,9 +39,15 @@ Mounting never steals keyboard focus. The widget header and status hint identify
 | Restore and focus a hidden widget | `/openui-restore [id]`, or its Restore placeholder button |
 | Permanently dismiss a visible or hidden widget without sending its values | `/openui-close [id]`, or its Close button with mouse input |
 
-Within a focused widget, the existing component keys apply: Tab/Shift+Tab changes controls, arrows navigate, Enter/Space activates buttons, and Ctrl+Page Up/Down pages its content. Plain Page Up/Down also works in the regular host; the fullscreen host reserves those unmodified keys for the surrounding transcript. Escape/Ctrl+C returns focus to chat; it does not cancel a running notebook or submit/dismiss the widget. Once chat has focus, normal typing and sending belong to Pi.
+Within a focused widget, the existing component keys apply: Tab/Shift+Tab changes controls, arrows navigate, Enter/Space activates buttons, and Ctrl+Page Up/Down always pages its content. Pi 1.5 fullscreen also forwards plain Page Up/Down to the focused widget; Pi 1.4 fullscreen reserves those unmodified keys for the surrounding transcript. Where the host forwards them, focused controls may consume plain paging: DatePicker changes months and TextArea can page its editor. Use Ctrl+Page Up/Down to scroll the widget independently of the focused control. Escape/Ctrl+C returns focus to chat; it does not cancel a running notebook or submit/dismiss the widget. Once chat has focus, normal typing and sending belong to Pi.
 
-Pi's fullscreen host supports mouse interaction in transcript widgets. Regular host mode uses keyboard interaction and leaves mouse handling to the terminal. In the regular host, scroll the terminal manually to see an older widget before editing it; focus transfer cannot move the terminal's scrollback. The fullscreen host can reveal its transcript row when focus changes. A widget's own viewport and wrapping adapt on resize. Return focus to chat before using unrelated dialogs or normal chat input.
+The local widget header, content, and footer share one right edge. At host widths of 22 columns or more, the whole widget reserves two host columns, one blank separator and Pi's conversation rail. Below 22 columns it reserves only the parent rail. At one column or less it renders no rows. The right boundary appears at usable widget widths of at least 20 columns. For bordered views with at least four view rows, a blank spacer follows the wrapper header and a cap-only row follows the footer hints within the existing height budget. Each track end has one intervening row before its boundary cap, without repeating the widget title. Shorter and edge-free views use a compact layout. Fitting content shows a passive boundary with no scrollbar hit target. Header actions have one blank column before the boundary, outside their hit targets, and shorten as space narrows. The focus, expand, hide/restore and close commands or shortcuts remain available when their labels cannot fit.
+
+Overflowing local content shows a compact right-hand scrollbar in that same edge cell: the accented thumb marks the visible portion and its position on the muted track. When no separate rail fits, the footer shows a visible line range and above/below arrows, shortened as needed. When a footer fits, a one-row body also keeps the range cue because a thumb cannot show its position there. These overflow cues appear only when content overflows and update with scrolling, focus, resizing, page changes and reactive content. They describe the widget's internal viewport, not conversation scrollback; the widget does not expand automatically. In Pi's fullscreen host, drag the thumb to scroll while preserving the grabbed row. Click the track above or below the thumb to page once after a stationary release. Only the visible glyph column responds; the adjacent spacing column is inert. A track drag does not page. Thumb movement continues outside the widget and clamps at either end, including when you move horizontally away from the rail. When space permits, the footer includes Ctrl+PgUp/PgDn alongside focus and return-to-chat hints.
+
+Pi's fullscreen host supports mouse interaction in transcript widgets. Regular host mode uses keyboard interaction and leaves mouse handling to the terminal. In the regular host, scroll the terminal manually to see an older widget before editing it; focus transfer cannot move the terminal's scrollback. The fullscreen host can reveal its transcript row when focus changes. A widget's own viewport and wrapping adapt on resize. Keyboard or wheel input, widget focus loss, expansion/collapse, hiding, reactive updates, page changes, resize, and removal cancel scrollbar gestures. Their trailing events cannot activate a field or header action. A fresh press starts a new interaction. A thumb with no available travel remains inert; keyboard and wheel scrolling still work. Return focus to chat before using unrelated dialogs or normal chat input.
+
+Retained drag delivery was checked on Pi 1.5 fullscreen. It does not capture outside the terminal. Pi does not notify the widget when terminal focus-out clears host capture, so immediate cancellation on terminal focus-out is not observable. Pi also retains press-time coordinates; transcript relocation without a view-local layout change is not observable through this interface. Start a fresh press after those transitions. No host patch or raw-input interception is used.
 
 ## Hide and restore
 
@@ -55,7 +61,7 @@ Hide/Restore is separate from F2 expansion: it removes the content viewport enti
 
 ## Height and overflow
 
-Compact mode limits the inner view to half the terminal height, with a minimum of 5 and maximum of 18 rows. Expanded mode uses three quarters of the terminal height, with a minimum of 5 and maximum of 48 rows. Both policies round down before applying those bounds, update on terminal resize, and leave short content at its natural height. The wrapper header adds one row outside this limit; the inner-view limit includes its keyboard-hint row and any inner heading row.
+Compact mode limits the inner view to half the terminal height, with a minimum of 5 and maximum of 18 rows. Expanded mode uses three quarters of the terminal height, with a minimum of 5 and maximum of 48 rows. Both policies round down before applying those bounds, update on terminal resize, and leave short content at its natural height. The wrapper header adds one row outside this limit. The inner-view limit includes the keyboard hints and, in bordered layouts, the blank top spacer and bottom cap. Edge-free local views omit those framing rows and have no inner title.
 
 | Terminal rows | Compact inner-view limit | Expanded inner-view limit |
 | --- | --- | --- |
@@ -64,7 +70,7 @@ Compact mode limits the inner view to half the terminal height, with a minimum o
 | 36 | 18 | 27 |
 | 80 | 18 | 48 |
 
-Content keeps its existing width and wrapping policy; expansion increases height, not width. When content exceeds either viewport, the footer shows its visible line range and above/below arrows. Narrow layouts retain a shorter overflow cue. Ctrl+Page Up/Down always pages the widget viewport, including when a calendar or multiline input has focus. Pi's fullscreen host handles plain Page Up/Down as transcript scrolling before extension input listeners, so use the Ctrl-modified keys for a local widget. Focus navigation and the mouse wheel also reveal hidden content. Indicators update as content, focus, width or height changes and disappear when everything fits.
+Expansion increases height while retaining the same available-width policy. When content exceeds either viewport, the scrollbar shows its position; narrow or one-row viewports retain a compact footer range instead. Ctrl+Page Up/Down always pages the widget viewport, including when a calendar or multiline input has focus. Pi 1.5 fullscreen forwards plain Page Up/Down too, subject to the focused control's own handling; Pi 1.4 fullscreen keeps those plain keys for transcript scrolling. Focus navigation and the mouse wheel also reveal hidden content. Indicators update as content, focus, width or height changes and disappear when everything fits.
 
 Expansion preserves edited values, the active tab or step, and control focus. The scroll offset remains where valid and is clamped when the viewport or content size changes; focus navigation can reveal the selected control. Each widget owns its own expansion state. Expanding or collapsing does not submit an answer, invoke a tool or start a model turn.
 
@@ -76,7 +82,7 @@ Local documents are checked before mounting. `@ToAssistant`, legacy string submi
 
 The adapter also bounds static reference expansion to 16,384 syntax nodes before handing the document to lang-core. A small source can otherwise expand excessively through repeated aliases. If the limit is reached, simplify those references or split the content into smaller widgets.
 
-`summary.title` supplies the widget's single header title, with “Local explorer” as the fallback. The inner view omits its own heading and uses that row for content. Start the document body with useful instructions, context or controls instead of repeating the title as its first Text or Markdown heading. Keep distinct section headings when they help organize the content; the renderer preserves authored content rather than deduplicating matching text. Static displays and collecting forms retain their existing titles and controls. `summary.fields` does not export local state or create a submission summary.
+`summary.title` supplies the widget's single header title, with “Local explorer” as the fallback. The inner view omits a second title. Bordered layouts use a blank spacer for the scrollbar boundary; edge-free layouts reclaim that row for content. Start the document body with useful instructions, context or controls instead of repeating the title as its first Text or Markdown heading. Keep distinct section headings when they help organize the content; the renderer preserves authored content rather than deduplicating matching text. Static displays and collecting forms retain their existing titles and controls. `summary.fields` does not export local state or create a submission summary.
 
 ## Lifecycle
 
@@ -139,6 +145,8 @@ The second widget uses Tabs and a local disclosure button. Its explanation is ex
 The images replay unmodified PTY output. Source documents, example prices and provider replies are deterministic test fixtures; they are not external-model-generated data. Browser tooling belongs only to the external screenshot harness and is not an extension dependency.
 
 ## Verification
+
+The combined local-widget integration checks are recorded in [validation history](validation-history.md). The results below describe the v0.7.0 baseline.
 
 The v0.7.0 tests exercise actual lang-core parsing/state evaluation, native controls, action-policy diagnostics, independent widget state, focus, resizing, disposal, branch replay and compaction. The examples verify 4/10/11-worker prices, ties, Reset, keyboard tab navigation and disclosure without a submission. Skill examples are parsed with the shipped library and tested through local recalculation or explicit answer collection, according to their mode.
 

@@ -4,7 +4,7 @@ import { Text, isKeyRelease, matchesKey, stripTerminalSequences, truncateToWidth
 import { DocumentModel, limits } from "./model.js";
 import { localDocumentDiagnostics } from "./local-policy.js";
 import { presentation, safeText, type HostTheme } from "./presentation.js";
-import { OpenUIView, type ViewOptions } from "./view.js";
+import { OpenUIView, type ViewEdge, type ViewOptions } from "./view.js";
 
 export const OPENUI_LOCAL_ENTRY = "openui-local-widget";
 export const OPENUI_LOCAL_CLOSE_ENTRY = "openui-local-close";
@@ -19,12 +19,19 @@ type HostTUI = TUI & {
   readonly viewportTop?: number;
   scrollBy?(lines: number): void;
 };
+type LocalWidgetLayout = Readonly<{ width: number; edge: ViewEdge }>;
+function localWidgetLayout(hostWidth: number): LocalWidgetLayout | undefined {
+  if (!Number.isFinite(hostWidth)) return undefined;
+  const columns = Math.floor(hostWidth);
+  const width = columns - (columns >= 22 ? 2 : 1);
+  return width > 0 ? { width, edge: width >= 20 ? "right" : "none" } : undefined;
+}
 interface Widget {
   data: StoredWidget;
   model: DocumentModel;
   view: OpenUIView;
   options: ViewOptions;
-  component: Component & { focused: boolean };
+  component: Component & { focused: boolean; capturesViewportInput?: boolean };
   disposed: boolean;
   expanded: boolean;
   hidden: boolean;
@@ -33,6 +40,7 @@ interface Widget {
   headerHits?: Array<{ action: HeaderAction; x: number; width: number }>;
   headerGesture?: { action: HeaderAction; x: number; y: number; cancelled?: boolean };
   width?: number;
+  layout?: LocalWidgetLayout;
 }
 // Pi 1.4's matchesKey handles plain F6 but not modified function keys.
 const cycleKey = (data: string) => data === "\x1b[17;2~" || /^\x1b\[57369;2(?::[12])?u$/.test(data);
@@ -164,18 +172,20 @@ export function createLocalWidgets(pi: ExtensionAPI) {
   }
   function hide(widget: Widget): boolean {
     if (widget.disposed || widget.hidden) return false;
+    widget.view.cancelPointerGesture();
     if (focused() === widget.component) blur();
     widget.hidden = true;
     widget.hiddenOrder = ++hiddenSerial;
-    widget.headerGesture = undefined;
+    if (widget.headerGesture) widget.headerGesture.cancelled = true;
     refreshHost();
     requestRender();
     return true;
   }
   function restore(widget: Widget): boolean {
     if (widget.disposed || !widget.hidden) return false;
+    widget.view.cancelPointerGesture();
     widget.hidden = false;
-    widget.headerGesture = undefined;
+    if (widget.headerGesture) widget.headerGesture.cancelled = true;
     if (!focus(widget, false)) {
       widget.hidden = true;
       refreshHost();
@@ -218,59 +228,79 @@ export function createLocalWidgets(pi: ExtensionAPI) {
     };
     const widget = { data, model, options, disposed: false, expanded: false, hidden: false, hiddenOrder: 0, theme: {} } as Widget;
     const toggleExpanded = () => {
+      widget.view.cancelPointerGesture();
       widget.expanded = !widget.expanded;
-      widget.headerGesture = undefined;
+      if (widget.headerGesture) widget.headerGesture.cancelled = true;
       widget.view.invalidate();
       requestRender();
     };
     widget.view = new OpenUIView(model, options);
     widget.view.focused = false;
     widget.component = {
+      // Pi 1.5 otherwise consumes PgUp/PgDn for conversation scrolling before
+      // dispatching to a focused transcript component. Older hosts ignore this.
+      capturesViewportInput: true,
       get focused() { return widget.view.focused; },
-      set focused(value: boolean) { widget.view.focused = value; },
+      set focused(value: boolean) {
+        if (!value) {
+          widget.view.cancelPointerGesture();
+          if (widget.headerGesture) widget.headerGesture.cancelled = true;
+        }
+        widget.view.focused = value;
+      },
       invalidate() { if (!widget.disposed) widget.view.invalidate(); },
       render(width: number) {
-        if (widget.disposed || width < 1) {
-          widget.width = width;
+        if (widget.width !== width) {
+          widget.view.cancelPointerGesture();
+          if (widget.headerGesture) widget.headerGesture.cancelled = true;
+        }
+        widget.width = width;
+        const layout = widget.layout = localWidgetLayout(width);
+        if (widget.disposed || !layout) {
           widget.headerHits = undefined;
+          widget.view.cancelPointerGesture();
           if (widget.headerGesture) widget.headerGesture.cancelled = true;
           return [];
         }
-        if (widget.width !== width && widget.headerGesture) widget.headerGesture.cancelled = true;
-        widget.width = width;
-        if (revealProbe === widget) return [`OpenUI focus probe: ${data.widgetId}`, ...widget.view.render(width)];
+        // Keep the probe's body geometry identical to the visible widget, and
+        // retain the host width separately for rendering its transcript parent.
+        if (revealProbe === widget) return [`OpenUI focus probe: ${data.widgetId}`,
+          ...(widget.hidden ? [] : widget.view.render(layout.width, layout.edge))];
         const style = presentation(() => widget.theme);
+        const textWidth = layout.width - (layout.edge === "right" ? 2 : 0);
         const left = safeText(data.title).trim() || "Local explorer";
-        const label = "[Close]";
-        const closeLabel = width >= (widget.hidden ? 40 : 30) ? label : width >= (widget.hidden ? 12 : 11) ? "[×]" : "";
+        const closeLabel = textWidth >= (widget.hidden ? 40 : 30) ? "[Close]" : textWidth >= (widget.hidden ? 12 : 11) ? "[×]" : "";
         const controls: Array<{ action: HeaderAction; label: string }> = widget.hidden
-          ? [{ action: "restore", label: width >= 22 ? "[Restore]" : width >= 6 ? "[R]" : "R" }]
+          ? [{ action: "restore", label: textWidth >= 22 ? "[Restore]" : textWidth >= 6 ? "[R]" : "R" }]
           : [
-            ...(width >= 18 ? [{ action: "expand" as const, label: width >= 50 ? `[${widget.expanded ? "Collapse" : "Expand"} F2]` : `[${widget.expanded ? "−" : "+"}]` }] : []),
-            { action: "hide", label: width >= 30 ? "[Hide]" : width >= 6 ? "[H]" : "H" },
+            ...(textWidth >= 18 ? [{ action: "expand" as const, label: textWidth >= 50 ? `[${widget.expanded ? "Collapse" : "Expand"} F2]` : `[${widget.expanded ? "−" : "+"}]` }] : []),
+            { action: "hide", label: textWidth >= 30 ? "[Hide]" : textWidth >= 6 ? "[H]" : "H" },
           ];
         if (closeLabel) controls.push({ action: "close", label: closeLabel });
         const actions = controls.map(control => control.label).join(" ");
-        const titleWidth = Math.max(0, width - visibleWidth(actions) - 1);
+        const titleWidth = Math.max(0, textWidth - visibleWidth(actions) - 1);
         const title = widget.hidden ? `${safeText(data.title).replace(/\n/g, " ").trim() || "Local explorer"} · hidden · /openui-restore ${data.widgetId}` : left;
         const clippedTitle = truncateToWidth(title, titleWidth, "");
-        const header = clippedTitle + " ".repeat(Math.max(0, width - visibleWidth(clippedTitle) - visibleWidth(actions))) + actions;
-        let actionStart = width - visibleWidth(actions);
+        let header = clippedTitle + " ".repeat(Math.max(0, textWidth - visibleWidth(clippedTitle) - visibleWidth(actions))) + actions;
+        let actionStart = textWidth - visibleWidth(actions);
         widget.headerHits = controls.map(control => {
           const hit = { action: control.action, x: actionStart, width: visibleWidth(control.label) };
           actionStart += hit.width + 1;
           return hit;
         });
-        return [truncateToWidth(style.fg(widget.view.focused ? "accent" : "muted", header), width, ""), ...(widget.hidden ? [] : widget.view.render(width))];
+        header = style.fg(widget.view.focused ? "accent" : "muted", header);
+        if (layout.edge === "right") header += " " + style.fg("borderMuted", "┐");
+        return [header, ...(widget.hidden ? [] : widget.view.render(layout.width, layout.edge))];
       },
       handleInput(data: string) {
         if (widget.disposed || widget.hidden || focused() !== widget.component) return;
+        widget.view.cancelPointerGesture();
+        if (widget.headerGesture) widget.headerGesture.cancelled = true;
         if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c") || matchesKey(data, "f6")) { blur(); return; }
         if (cycleKey(data)) { toggle(true); return; }
         if (matchesKey(data, "f2")) { toggleExpanded(); return; }
-        // Pi's fullscreen viewport consumes plain paging before extension
-        // listeners. Modified paging reaches the widget without changing the
-        // host's keybindings or replacing its input handling.
+        // Dedicated paging also reaches Pi 1.4 and bypasses field-owned keys
+        // such as calendar months and multiline-editor navigation.
         if (matchesKey(data, "ctrl+pageUp") || matchesKey(data, "ctrl+pageDown")) {
           widget.view.page(matchesKey(data, "ctrl+pageUp") ? -1 : 1);
           return;
@@ -279,13 +309,34 @@ export function createLocalWidgets(pi: ExtensionAPI) {
       },
       handleMouse(event: TuiMouseEvent) {
         if (widget.disposed) return undefined;
-        const action = event.y === 0 && event.x >= 0 && event.x < (widget.width ?? 0)
+        if (!Number.isFinite(event.x) || !Number.isFinite(event.y)) {
+          widget.view.cancelPointerGesture();
+          if (widget.headerGesture) widget.headerGesture.cancelled = true;
+          return undefined;
+        }
+        const width = widget.layout?.width ?? 0;
+        const bodyEvent = { ...event, width, y: event.y - 1, height: Math.max(0, event.height - 1) };
+        if (event.type === "wheel") widget.view.cancelPointerGesture();
+        // Captured scrollbar tails must never become header or hidden-body
+        // actions, even when the pointer has left the widget's inset bounds.
+        if (widget.view.ownsScrollbarContinuation(event)) {
+          const result = widget.view.handleMouse(bodyEvent);
+          return result ? { ...result, focus: false } : undefined;
+        }
+        if (event.x < 0 || event.x >= width) return undefined;
+        const action = event.y === 0
           ? widget.headerHits?.find(hit => event.x >= hit.x && event.x < hit.x + hit.width)?.action
           : undefined;
         if (widget.headerGesture && (event.type === "drag" || event.x !== widget.headerGesture.x || event.y !== widget.headerGesture.y)) widget.headerGesture.cancelled = true;
         if (event.type === "press" || event.type === "click") {
+          // Header presses otherwise return before the view sees them. A fresh
+          // press clears a consumed scrollbar gesture; cancellation alone keeps
+          // that gesture's trailing click blocked.
+          if (event.type === "press" && (event.y === 0 || widget.hidden)) {
+            widget.view.handleMouse({ ...bodyEvent, y: -1 });
+          }
           if (widget.hidden) { captureEditor(); if (!canFocus()) return undefined; }
-          else if (!focus(widget, false)) return undefined;
+          else if (focused() !== widget.component && !focus(widget, false)) return undefined;
           const gesture = widget.headerGesture;
           widget.headerGesture = undefined;
           if (event.button === "left" && !event.shift && !event.alt && !event.ctrl && action) {
@@ -302,7 +353,7 @@ export function createLocalWidgets(pi: ExtensionAPI) {
         if (widget.headerGesture) return { handled: true, render: false };
         if (widget.hidden) return action ? { handled: true, render: false } : undefined;
         if (event.y === 0) return { handled: true, render: false };
-        const result = widget.view.handleMouse({ ...event, y: event.y - 1, height: Math.max(0, event.height - 1) });
+        const result = widget.view.handleMouse(bodyEvent);
         // The manager owns keyboard focus and restores the actual chat editor.
         return result ? { ...result, focus: false } : undefined;
       },
