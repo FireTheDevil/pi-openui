@@ -25,27 +25,38 @@ function host(mode: "on" | "only" = "on") {
   const nestedResults: any[] = [];
   let notifyOpened!: () => void;
   const opened = new Promise<void>(resolve => { notifyOpened = resolve; });
-  const api = {
+
+  const api: Pick<ExtensionAPI, "registerToolRenderer" | "registerMessageRenderer" | "registerEntryRenderer" | "registerTool" | "registerCommand" | "on" | "getActiveTools" | "getAllTools" | "getSettings" | "appendEntry" | "sendUserMessage" | "sendMessage"> = {
     registerToolRenderer() {},
     registerMessageRenderer() {},
     registerEntryRenderer() {},
     registerTool: (tool: any) => tools.set(tool.name, tool),
     registerCommand() {},
-    on: (name: string, callback: Function) => handlers.set(name, callback),
+    on: (name, callback) => {
+      handlers.set(name, callback);
+
+      return () => { handlers.delete(name); };
+    },
     getActiveTools: () => active,
     getAllTools: () => [...tools.values()].map(tool => ({ ...tool, exposure: tool.exposure ?? "direct" })),
     getSettings: () => ({ codemode: { mode } }),
     appendEntry() {},
     sendUserMessage() { userTurns++; },
     sendMessage() { userTurns++; },
-  } as unknown as ExtensionAPI;
-  openuiExtension(api);
+  };
+
+  // SAFETY: The typed fixture supplies OpenUI registration/message capabilities; optional conversion events are absent.
+  openuiExtension(api as ExtensionAPI);
   tools.set("sentinel", {
     name: "sentinel", label: "Sentinel", description: "Record that the next statement ran.",
     parameters: Type.Object({}),
-    async execute() { sideEffects++; return { content: [{ type: "text", text: "effect recorded" }] }; },
+    async execute() { sideEffects++;
+
+ return { content: [{ type: "text", text: "effect recorded" }] }; },
   });
-  createCodemodeExtension({ mode, models: false, inlineBudget: 20_000 })(api);
+  // SAFETY: These modes use the supplied tool registration, tool/settings discovery and event capabilities; model registration is disabled.
+  createCodemodeExtension({ mode, models: false, inlineBudget: 20_000 })(api as ExtensionAPI);
+
   const ctx = {
     mode: "tui", hasUI: true,
     get signal() { return run.signal; },
@@ -53,22 +64,24 @@ function host(mode: "on" | "only" = "on") {
     sessionManager: { getBranch: () => [] },
     tools: [...tools.values()],
     ui: {
-      custom: (factory: Function) => new Promise(resolve => {
-        view = factory({ terminal: { rows: 30 }, requestRender() {} }, {}, {}, (result: unknown) => {
+      custom: <T>(factory: Function) => new Promise<T>(resolve => {
+        view = factory({ terminal: { rows: 30 }, requestRender() {} }, {}, {}, (result: T) => {
           closed++; view.dispose(); resolve(result);
         });
         notifyOpened();
       }),
     },
-    executeTool: async (name: string, args: unknown, options: { signal?: AbortSignal } = {}) => {
+    executeTool: async (name: string, args: Parameters<ExtensionToolContext["executeTool"]>[1], options: Parameters<ExtensionToolContext["executeTool"]>[2] = {}) => {
       const id = `code-parent/${++count}`;
       const toolCall = { type: "toolCall", id, name, arguments: args };
       const result = await tools.get(name).execute(id, args, options.signal, undefined, ctx);
       nestedResults.push({ name, result });
       handlers.get("tool_execution_end")?.({ type: "tool_execution_end", toolName: name, toolCallId: id, parentToolCallId: "code-parent", result, isError: !!result.isError }, ctx);
+
       return { toolCall, result, isError: !!result.isError };
     },
-  } as unknown as ExtensionToolContext;
+  };
+
   return {
     tools, handlers, ctx, opened, nestedResults,
     get closed() { return closed; }, get userTurns() { return userTurns; },
@@ -78,8 +91,10 @@ function host(mode: "on" | "only" = "on") {
     async execute(code: string, signal?: AbortSignal) {
       run = new AbortController();
       const abort = () => run.abort(signal?.reason);
+
       if (signal?.aborted) abort();
       else signal?.addEventListener("abort", abort, { once: true });
+
       try { return await tools.get("codemode").execute("code-parent", { code }, run.signal, undefined, ctx); }
       finally { signal?.removeEventListener("abort", abort); }
     },
@@ -100,7 +115,9 @@ test("native code-only loadout hides the declaration while keeping OpenUI genera
     const h = host(mode);
     const changes = h.loadout();
     assert.equal(changes.hiddenDeclarations.includes("show_ui"), mode === "only");
+
     if (mode === "only") assert.match(changes.descriptions.codemode, /show_ui/);
+    // SAFETY: The host section dictionary starts empty and this handler adds only modelPrompt text.
     const event = { systemPromptOptions: { sections: {} as Record<string, string> } };
     h.handlers.get("before_agent_start")!(event, h.ctx);
     assert.match(event.systemPromptOptions.sections.openui, /@Set|@ToAssistant/);
@@ -111,6 +128,7 @@ for (const mode of ["on", "only"] as const) {
   test(`native QuickJS (${mode}) waits for local actions and receives structured ToAssistant data`, { timeout: 15_000 }, async () => {
     const h = host(mode);
     const pending = h.execute(`const result = await tools.show_ui({source: ${JSON.stringify(SOURCE)}}); if (typeof result !== "object") throw new Error("Expected structured output"); text({status: result.status, message: result.message, count: result.context.count, stored: result.state.$count});`);
+
     try {
       await h.opened;
       h.key("\r");
@@ -139,6 +157,7 @@ for (const mode of ["on", "only"] as const) {
       // The caller can skip choice-dependent work and still clean up or continue
       // unrelated work. Dismissing the form is not an execution interruption.
       const pending = h.execute(`try { const result = await tools.show_ui({source: ${JSON.stringify(SOURCE)}}); text(result); if (result.status === "submitted") { await tools.sentinel({}); text("SUBMITTED_ONLY"); } else if (result.status === "cancelled") { text("FORM_DISMISSED"); } } catch { text("UNEXPECTED_EXCEPTION"); } finally { text("CLEANUP_RAN"); } await tools.sentinel({}); text("CALLER_CONTINUED");`);
+
       try {
         await h.opened;
         h.key(key);
@@ -182,6 +201,7 @@ test("aborting native QuickJS closes its waiting OpenUI panel", { timeout: 15_00
   const h = host();
   const abort = new AbortController();
   const pending = h.execute(`text(await tools.show_ui({source: ${JSON.stringify(SOURCE)}}));`, abort.signal);
+
   try {
     await h.opened;
     abort.abort();
@@ -196,6 +216,7 @@ test("aborting native QuickJS closes its waiting OpenUI panel", { timeout: 15_00
 test("native QuickJS timeout closes the waiting panel and permits a later run", { timeout: 15_000 }, async () => {
   const h = host();
   const pending = h.execute(`// @options: {"timeout_ms": 250}\nawait tools.show_ui({source: ${JSON.stringify(SOURCE)}}); await tools.sentinel({}); text("AFTER_TIMEOUT");`);
+
   try {
     await h.opened;
     const result = await pending;

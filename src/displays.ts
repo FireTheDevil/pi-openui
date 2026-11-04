@@ -1,14 +1,28 @@
+import type { RenderedNode } from "./catalog.js";
+import { z } from "zod";
+import { predicateParseContext } from "./predicate-validation.js";
 import { highlightCode } from "@earendil-works/pi-coding-agent";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
-import type { ElementNode } from "@openuidev/lang-core";
 import { Markdown, Text, truncateToWidth, visibleWidth, wrapTextWithAnsi, type MarkdownTheme } from "@earendil-works/pi-tui";
+import { componentSpecs } from "./catalog.js";
 import { safeText, type PresentationStyle } from "./presentation.js";
 
 const displayNames = new Set(["Text", "Markdown", "CodeBlock", "List", "Badge", "Progress", "Divider", "Table"]);
-const tones: Record<string, ThemeColor> = {
-  default: "text", muted: "muted", accent: "accent", success: "success", warning: "warning", error: "error",
-};
-const tone = (value: unknown, fallback: ThemeColor = "text"): ThemeColor => typeof value === "string" ? tones[value] ?? fallback : fallback;
+
+const tones = new Map<string, ThemeColor>([
+  ["default", "text"], ["muted", "muted"], ["accent", "accent"], ["success", "success"], ["warning", "warning"], ["error", "error"],
+]);
+
+const displayTextSchema = z.string();
+
+const progressNumberSchema = z.union([z.number(), z.nan(), z.literal(Infinity), z.literal(-Infinity)]);
+
+const isDisplayText = (value: RenderedNode["props"][string]): value is string => displayTextSchema.safeParse(value, predicateParseContext).success;
+
+const isProgressNumber = (value: RenderedNode["props"][string]): value is number => progressNumberSchema.safeParse(value, predicateParseContext).success;
+
+const tone = (value: RenderedNode["props"][string], fallback: ThemeColor = "text"): ThemeColor => isDisplayText(value) ? tones.get(value) ?? fallback : fallback;
+
 const wrap = (text: string, width: number): string[] => new Text(text, 0, 0).render(width);
 
 /** Pi's highlighter uses the active host theme. Unit/headless hosts may not initialize one. */
@@ -40,53 +54,80 @@ function markdownTheme(style: PresentationStyle): MarkdownTheme {
 // Native Markdown can emit terminal hyperlinks when the terminal advertises them.
 // Displays are passive: retain the label and styling, never an OSC 8 activation target.
 function withoutLinks(line: string): string {
-  return line.replace(/\x1b\]8;[^\x07\x1b]*(?:\x07|\x1b\\)/g, "");
+  let result = "";
+  let start = 0;
+
+  for (let cursor = 0; cursor < line.length; cursor++) {
+    if (!line.startsWith("\x1b]8;", cursor)) continue;
+    let end = cursor + 4;
+
+    while (end < line.length && line[end] !== "\x07" && line[end] !== "\x1b") end++;
+    const next = line[end] === "\x07" ? end + 1 : line.startsWith("\x1b\\", end) ? end + 2 : undefined;
+
+    if (next === undefined) continue;
+    result += line.slice(start, cursor);
+    start = next;
+    cursor = next - 1;
+  }
+
+  return result + line.slice(start);
 }
 
 /** Render noninteractive catalog components; callers own viewport placement and scrolling. */
-export function renderDisplay(node: ElementNode, width: number, style: PresentationStyle): string[] | undefined {
+export function renderDisplay(node: RenderedNode, width: number, style: PresentationStyle): string[] | undefined {
   if (!displayNames.has(node.typeName)) return undefined;
+
   if (!Number.isFinite(width) || width < 1) return [];
   width = Math.floor(width);
   const p = node.props;
   let lines: string[];
+
   switch (node.typeName) {
     case "Text": {
-      const settings = p.settings as { tone?: string; bold?: boolean; italic?: boolean } | undefined;
+      const settings = componentSpecs.Text.shape.settings.parse(p.settings ?? undefined);
       lines = wrap(safeText(p.text), width).map(line => {
         if (settings?.bold) line = style.bold(line);
+
         if (settings?.italic) line = style.italic(line);
+
         return style.fg(tone(settings?.tone), line);
       });
       break;
     }
+
     case "Markdown": {
       const source = safeText(p.text);
+
       try {
         lines = new Markdown(source, 0, 0, markdownTheme(style), { color: text => style.fg("text", text) }).render(width).map(withoutLinks);
       } catch {
         // Malformed Markdown or an unavailable host feature still shows readable text.
         lines = wrap(source, width).map(line => style.fg("text", line));
       }
+
       break;
     }
+
     case "CodeBlock": {
       const code = safeText(p.code);
       const language = p.language ? safeText(p.language).replace(/\n/g, " ") : undefined;
       const label = language ? ` code · ${language} ` : " code ";
       const heading = truncateToWidth(label, width, "");
       lines = [style.fg("mdCodeBlockBorder", heading + "─".repeat(Math.max(0, width - visibleWidth(heading))))];
+
       for (const line of codeLines(code, language, style)) lines.push(...wrapTextWithAnsi(line, width));
       lines.push(style.fg("mdCodeBlockBorder", "─".repeat(width)));
       break;
     }
+
     case "List": {
       lines = [];
-      const items = p.items as string[];
+      const items = componentSpecs.List.shape.items.parse(p.items);
       items.forEach((item, index) => {
         const prefix = p.ordered ? `${index + 1}. ` : "• ";
         const styledPrefix = style.fg("mdListBullet", prefix);
         const prefixWidth = visibleWidth(prefix);
+
         if (prefixWidth >= width) {
           lines.push(...wrap(styledPrefix + style.fg("text", safeText(item)), width));
         } else {
@@ -94,29 +135,35 @@ export function renderDisplay(node: ElementNode, width: number, style: Presentat
           body.forEach((line, row) => lines.push((row ? " ".repeat(prefixWidth) : styledPrefix) + style.fg("text", line)));
         }
       });
+
       if (!items.length) lines.push(...wrap(style.fg("muted", "(no items)"), width));
       break;
     }
+
     case "Badge":
       lines = wrap(`[ ${safeText(p.text)} ]`, width).map(line => style.fg(tone(p.tone, "accent"), style.bold(line.trimEnd())));
       break;
     case "Progress": {
-      const value = typeof p.value === "number" && Number.isFinite(p.value) ? p.value : 0;
-      const max = typeof p.max === "number" && Number.isFinite(p.max) && p.max > 0 ? p.max : 100;
+      const value = isProgressNumber(p.value) && Number.isFinite(p.value) ? p.value : 0;
+      const max = isProgressNumber(p.max) && Number.isFinite(p.max) && p.max > 0 ? p.max : 100;
       const ratio = Math.max(0, Math.min(1, value / max));
       const percent = `${Math.round(ratio * 100)}%`;
       const barWidth = width - percent.length - 3;
       lines = p.label ? wrap(safeText(p.label), width).map(line => style.fg("text", line)) : [];
+
       if (barWidth < 3) lines.push(style.fg(ratio === 1 ? "success" : "accent", percent));
       else {
         const filled = Math.round(barWidth * ratio);
         lines.push(style.fg("borderMuted", "[") + style.fg(ratio === 1 ? "success" : "accent", "█".repeat(filled))
           + style.fg("dim", "░".repeat(barWidth - filled)) + style.fg("borderMuted", "] ") + style.fg("text", percent));
       }
+
       break;
     }
+
     case "Divider": {
       const label = safeText(p.label).replace(/\n/g, " ");
+
       if (!label) lines = [style.fg("borderMuted", "─".repeat(width))];
       else {
         const caption = truncateToWidth(` ${label} `, Math.max(1, width - 2), "");
@@ -124,13 +171,16 @@ export function renderDisplay(node: ElementNode, width: number, style: Presentat
         lines = [style.fg("borderMuted", "─".repeat(lead)) + style.fg("muted", caption)
           + style.fg("borderMuted", "─".repeat(Math.max(0, width - lead - visibleWidth(caption))))];
       }
+
       break;
     }
+
     case "Table":
-      lines = renderTable(p.columns as string[], p.rows as unknown[][], width, style);
+      lines = renderTable(componentSpecs.Table.shape.columns.parse(p.columns), componentSpecs.Table.shape.rows.parse(p.rows), width, style);
       break;
     default: return undefined;
   }
+
   return lines.map(line => truncateToWidth(line, width, ""));
 }
 
@@ -138,7 +188,9 @@ export function renderDisplay(node: ElementNode, width: number, style: Presentat
 function renderTable(columns: string[], rows: unknown[][], width: number, style: PresentationStyle): string[] {
   const lines: string[] = [];
   const n = columns.length;
+
   if (!n) return lines;
+
   if (width < n * 8) {
     rows.forEach((row, index) => {
       if (index) lines.push("");
@@ -148,35 +200,48 @@ function renderTable(columns: string[], rows: unknown[][], width: number, style:
         lines.push(...wrap(`${label} ${value}`, width));
       });
     });
+
     if (!rows.length) lines.push(...wrap(style.fg("accent", style.bold(columns.map(safeText).join(" · "))), width));
+
     return lines;
   }
+
   const available = width - (n - 1) * 3;
+
   const widths = columns.map((column, i) => {
     let widest = 4;
+
     for (const value of [column, ...rows.map(row => row[i])]) {
       for (const line of safeText(value).split("\n")) widest = Math.max(widest, Math.min(48, visibleWidth(line)));
     }
+
     return widest;
   });
+
   while (widths.reduce((sum, value) => sum + value, 0) > available) {
     const widest = widths.indexOf(Math.max(...widths));
     widths[widest]--;
   }
+
   const rowLines = (cells: unknown[], header = false) => {
     const wrapped = columns.map((_, i) => wrap(safeText(cells[i]), widths[i]));
     const count = Math.max(1, ...wrapped.map(c => c.length));
+
     for (let line = 0; line < count; line++) {
       lines.push(wrapped.map((cell, i) => {
         const value = truncateToWidth(cell[line] ?? "", widths[i], "");
         const padded = value + " ".repeat(Math.max(0, widths[i] - visibleWidth(value)));
+
         return style.fg(header ? "accent" : "text", header ? style.bold(padded) : padded);
       }).join(style.fg("borderMuted", " │ ")));
     }
   };
+
   rowLines(columns, true);
   lines.push(style.fg("borderMuted", widths.map(cellWidth => "─".repeat(cellWidth)).join("─┼─")));
   rows.forEach(row => rowLines(row));
+
   if (!rows.length) lines.push(style.fg("muted", "(no rows)"));
+
   return lines;
 }

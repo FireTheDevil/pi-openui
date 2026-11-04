@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { z } from "zod";
 import { createCodemodeExtension, type ExtensionAPI, type ExtensionToolContext } from "@earendil-works/pi-coding-agent";
 import { matchesKey, stripTerminalSequences, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import openuiExtension from "../src/index.js";
@@ -9,8 +10,11 @@ import { childNodes, DocumentModel } from "../src/model.js";
 import { OpenUIView } from "../src/view.js";
 
 const SOURCE = '$count = 0;\nroot = Stack([Text("Count: " + $count), Button("Add one", @Set($count, $count + 1)), Button("Reset", @Reset($count))]);';
+
 const F6 = "\x1b[17~";
+
 const SHIFT_F6 = "\x1b[17;2~";
+
 const theme = { fg: (_color: string, value: string) => value, bg: (_color: string, value: string) => value, bold: (value: string) => value };
 
 /** Exercise the entire extension and actual views at Pi's UI/session boundary. */
@@ -18,7 +22,7 @@ function host(nativeMode?: "on" | "only") {
   const tools = new Map<string, any>();
   const events = new Map<string, Function[]>();
   const commands = new Map<string, any>();
-  const shortcuts = new Map<string, any>();
+  const shortcuts = new Map<Parameters<ExtensionAPI["registerShortcut"]>[0], any>();
   const renderers = new Map<string, Function>();
   const terminalListeners = new Set<Function>();
   const entries: any[] = [];
@@ -31,6 +35,7 @@ function host(nativeMode?: "on" | "only") {
   let customView: any;
   let chat = "";
   const chatMessages: string[] = [];
+
   const editor = {
     focused: true,
     getText: () => chat,
@@ -41,33 +46,50 @@ function host(nativeMode?: "on" | "only") {
       else chat += data;
     },
   };
+
   let focus: any = editor;
+
   const tui = {
     terminal: { rows: 40, columns: 100 },
     requestRender() { renders++; },
     hasOverlay: () => false,
     getFocusedComponent: () => focus,
-    setFocus(component: any) { if (focus) focus.focused = false; focus = component; if (focus) focus.focused = true; },
-    addInputListener(listener: Function) { terminalListeners.add(listener); return () => terminalListeners.delete(listener); },
+    setFocus(component: any) { if (focus) focus.focused = false; focus = component;
+
+ if (focus) focus.focused = true; },
+    addInputListener(listener: Function) { terminalListeners.add(listener);
+
+ return () => terminalListeners.delete(listener); },
   };
-  let ctx: ExtensionToolContext;
-  const api = {
+
+  const api: Pick<ExtensionAPI, "registerToolRenderer" | "registerMessageRenderer" | "registerEntryRenderer" | "appendEntry" | "registerTool" | "registerCommand" | "registerShortcut" | "on" | "getActiveTools" | "getAllTools" | "getSettings" | "sendMessage" | "sendUserMessage"> = {
     registerToolRenderer() {}, registerMessageRenderer() {},
     registerEntryRenderer: (type: string, renderer: Function) => renderers.set(type, renderer),
-    appendEntry(type: string, data: unknown) { entries.push({ type: "custom", customType: type, id: `entry-${entries.length}`, data: structuredClone(data) }); },
+    appendEntry(type: string, data: Parameters<ExtensionAPI["appendEntry"]>[1]) { entries.push({ type: "custom", customType: type, id: `entry-${entries.length}`, data: structuredClone(data) }); },
     registerTool: (tool: any) => tools.set(tool.name, tool),
     registerCommand: (name: string, command: any) => commands.set(name, command),
-    registerShortcut: (key: string, shortcut: any) => shortcuts.set(key, shortcut),
-    on(name: string, handler: Function) { const list = events.get(name) ?? []; list.push(handler); events.set(name, list); },
+    registerShortcut: (key, shortcut: any) => shortcuts.set(key, shortcut),
+    on(name, handler) {
+      const list = events.get(name) ?? [];
+      list.push(handler); events.set(name, list);
+
+      return () => {
+        const index = list.indexOf(handler);
+
+        if (index >= 0) list.splice(index, 1);
+      };
+    },
     getActiveTools: () => [...tools.keys()],
     getAllTools: () => [...tools.values()].map(tool => ({ ...tool, exposure: tool.exposure ?? "direct" })),
     getSettings: () => ({ codemode: { mode: nativeMode ?? "on" } }),
-    sendMessage(...args: unknown[]) { sent.push(args); }, sendUserMessage(...args: unknown[]) { sent.push(args); },
-  } as unknown as ExtensionAPI;
-  const emit = async (name: string, event: unknown = {}) => {
+    sendMessage(...args: Parameters<ExtensionAPI["sendMessage"]>) { sent.push(args); }, sendUserMessage(...args: Parameters<ExtensionAPI["sendUserMessage"]>) { sent.push(args); },
+  };
+
+  const emit = async (name: string, event: Parameters<ExtensionAPI["events"]["emit"]>[1] = {}) => {
     for (const handler of events.get(name) ?? []) await handler(event, ctx);
   };
-  ctx = {
+
+  const ctx = {
     mode: "tui", hasUI: true, signal: new AbortController().signal,
     get tools() { return [...tools.values()]; },
     abort() { aborts++; },
@@ -77,52 +99,76 @@ function host(nativeMode?: "on" | "only") {
       notify: (message: string) => notices.push(message), setStatus() {},
       getEditorText: () => chat, setEditorText: (value: string) => { chat = value; },
       setEditorComponent() { replacements++; }, getEditorComponent() { return undefined; },
-      onTerminalInput(listener: Function) { terminalListeners.add(listener); return () => terminalListeners.delete(listener); },
+      onTerminalInput(listener: Function) { terminalListeners.add(listener);
+
+ return () => terminalListeners.delete(listener); },
       setWidget(key: string, content: any) {
         widgets.get(key)?.dispose?.(); widgets.delete(key);
-        if (typeof content === "function") widgets.set(key, content(tui, theme));
+
+        if (z.function().safeParse(content).success) widgets.set(key, content(tui, theme));
         else if (Array.isArray(content)) widgets.set(key, { render: () => content, invalidate() {} });
       },
-      custom(factory: Function) {
+      custom<T>(factory: Function) {
         opens++;
-        return new Promise(resolve => {
-          customView = factory(tui, theme, {}, (result: unknown) => { customView?.dispose(); tui.setFocus(editor); resolve(result); });
+
+        return new Promise<T>(resolve => {
+          customView = factory(tui, theme, {}, (result: T) => { customView?.dispose(); tui.setFocus(editor); resolve(result); });
           tui.setFocus(customView);
         });
       },
     },
-    executeTool: async (name: string, args: unknown, options: { signal?: AbortSignal } = {}) => {
+    executeTool: async (name: string, args: Parameters<ExtensionToolContext["executeTool"]>[1], options: Parameters<ExtensionToolContext["executeTool"]>[2] = {}) => {
       const id = `native-parent/${++serial}`;
       const result = await tools.get(name).execute(id, args, options.signal, undefined, ctx);
       nestedResults.push({ name, result });
       await emit("tool_execution_end", { type: "tool_execution_end", toolName: name, toolCallId: id, parentToolCallId: "native-parent", result, isError: !!result.isError });
+
       return { toolCall: { type: "toolCall", id, name, arguments: args }, result, isError: !!result.isError };
     },
-  } as unknown as ExtensionToolContext;
-  openuiExtension(api);
-  if (nativeMode) createCodemodeExtension({ mode: nativeMode, models: false, inlineBudget: 20_000 })(api);
+  };
+
+  // SAFETY: This typed fixture supplies OpenUI registration, persistence, shortcuts and message capabilities; no optional conversion bus is exposed.
+  openuiExtension(api as ExtensionAPI);
+
+  if (nativeMode) {
+    // SAFETY: Native codemode uses these registered tool/settings/event capabilities; model registration is disabled.
+    createCodemodeExtension({ mode: nativeMode, models: false, inlineBudget: 20_000 })(api as ExtensionAPI);
+  }
+
   const rows = () => (visibleEntries ?? entries).flatMap(entry => {
     const component = renderers.get(entry.customType)?.(entry, { expanded: true }, theme);
+
     return component ? [{ entry, component }] : [];
   });
+
   const lines = (index = 0, width = tui.terminal.columns) => rows()[index]?.component.render(width).map(stripTerminalSequences).join("\n") ?? "";
+
   return {
     api, tools, ctx, emit, entries, notices, sent, nestedResults, tui, editor, widgets, commands, rows, lines, chatMessages,
     get opens() { return opens; }, get aborts() { return aborts; }, get replacements() { return replacements; },
     get focus() { return focus; }, get listeners() { return terminalListeners.size; }, get renders() { return renders; },
     setVisibleEntries(value: any[] | undefined) { visibleEntries = value; },
-    execute(args: Record<string, unknown> = { source: SOURCE, interaction: "local" }, id = `local-${++serial}`) {
+    execute(args: Parameters<ExtensionToolContext["executeTool"]>[1] = { source: SOURCE, interaction: "local" }, id = `local-${++serial}`) {
       return tools.get("show_ui").execute(id, args, ctx.signal, undefined, ctx);
     },
-    stream(args: Record<string, unknown>, id = "streaming-local") {
+    stream(args: Parameters<ExtensionToolContext["executeTool"]>[1], id = "streaming-local") {
       return emit("message_update", { assistantMessageEvent: { type: "toolcall_delta", contentIndex: 0, partial: {
         content: [{ type: "toolCall", id, name: "show_ui", arguments: args }],
       } } });
     },
     async key(data: string) {
       rows().forEach(row => row.component.render(tui.terminal.columns));
-      for (const listener of terminalListeners) { const result = listener(data); if (result?.consume) return; if (result?.data !== undefined) data = result.data; }
-      for (const [key, shortcut] of shortcuts) if (matchesKey(data, key as any)) { await shortcut.handler(ctx); return; }
+
+      for (const listener of terminalListeners) { const result = listener(data);
+
+ if (result?.consume) return;
+
+ if (result?.data !== undefined) data = result.data; }
+
+      for (const [key, shortcut] of shortcuts) if (matchesKey(data, key)) { await shortcut.handler(ctx);
+
+ return; }
+
       focus?.handleInput?.(data);
     },
     click(index: number, text: string) {
@@ -131,9 +177,11 @@ function host(nativeMode?: "on" | "only") {
       const y = frame.findIndex((line: string) => line.includes(text));
       assert.ok(y >= 0, `Missing mouse target ${text}:\n${frame.join("\n")}`);
       const x = frame[y].indexOf(text) + 1;
+
       for (const type of ["press", "release", "click"] as const) {
         const result = component.handleMouse?.({ type, button: "left", x, y, screenX: x, screenY: y,
           width: tui.terminal.columns, height: frame.length, shift: false, alt: false, ctrl: false });
+
         if (result?.focus) tui.setFocus(component);
         component.render(tui.terminal.columns);
       }
@@ -144,10 +192,11 @@ function host(nativeMode?: "on" | "only") {
 
 test("local show_ui mounts immediately in the transcript and leaves the composer untouched", async () => {
   const h = host();
+
   try {
     const result = await h.execute();
     assert.equal(result.structuredContent.status, "mounted");
-    assert.equal(typeof result.structuredContent.widgetId, "string");
+    assert.equal(z.string().safeParse(result.structuredContent.widgetId).success, true);
     assert.deepEqual(Object.keys(result.structuredContent).sort(), ["status", "widgetId"]);
     assert.deepEqual(JSON.parse(result.content[0].text), result.structuredContent);
     assert.equal(result.isError, undefined);
@@ -161,6 +210,7 @@ test("local show_ui mounts immediately in the transcript and leaves the composer
 
 test("local widget edits, reset and focus changes emit no tool or model answers after the turn finishes", async () => {
   const h = host();
+
   try {
     const result = await h.execute();
     const mounted = JSON.stringify(result);
@@ -192,6 +242,7 @@ test("local widget edits, reset and focus changes emit no tool or model answers 
 
 test("multiple local widgets retain independent state and remain usable after resize", async () => {
   const h = host();
+
   try {
     const first = await h.execute({ source: SOURCE, interaction: "local", summary: { title: "First" } });
     const second = await h.execute({ source: SOURCE, interaction: "local", summary: { title: "Second" } });
@@ -205,6 +256,7 @@ test("multiple local widgets retain independent state and remain usable after re
     assert.equal(changed.filter(value => /Count: 2/.test(value)).length, 1);
     assert.equal(changed.filter(value => /Count: 1/.test(value)).length, 1);
     h.tui.terminal.columns = 32; h.tui.terminal.rows = 12;
+
     for (const row of h.rows()) assert.ok(row.component.render(32).every((line: string) => visibleWidth(line) <= 32));
     await h.key("\x1b");
     await h.key("still typing"); await h.key("\r");
@@ -214,6 +266,7 @@ test("multiple local widgets retain independent state and remain usable after re
 
 test("local streaming arguments cannot open a focused preview before interaction arrives", async () => {
   const h = host();
+
   try {
     await h.stream({ source: SOURCE });
     assert.equal(h.opens, 0);
@@ -228,6 +281,7 @@ test("local streaming arguments cannot open a focused preview before interaction
 
 test("mouse edits share local state and focus returns to chat without dismissal", async () => {
   const h = host();
+
   try {
     await h.execute();
     h.click(0, "Add one");
@@ -245,6 +299,7 @@ test("mouse edits share local state and focus returns to chat without dismissal"
 
 test("explicit close disposes a widget without exposing its edited state", async () => {
   const h = host();
+
   try {
     const result = await h.execute();
     await h.key(F6); await h.key("\r");
@@ -266,6 +321,7 @@ test("explicit close disposes a widget without exposing its edited state", async
 
 test("navigation removes abandoned widget handlers and replay restores source defaults", async () => {
   const h = host();
+
   try {
     await h.execute();
     const saved = structuredClone(h.entries);
@@ -291,6 +347,7 @@ test("navigation removes abandoned widget handlers and replay restores source de
 
 test("compaction disposes hidden widgets while preserving remaining local state", async () => {
   const h = host();
+
   try {
     await h.execute({ source: SOURCE, interaction: "local", summary: { title: "Old widget" } });
     await h.execute({ source: SOURCE, interaction: "local", summary: { title: "Retained widget" } });
@@ -316,6 +373,7 @@ test("compaction disposes hidden widgets while preserving remaining local state"
 
 test("focus shortcuts do not steal focus or keystrokes from another host dialog", async () => {
   const h = host();
+
   try {
     await h.execute();
     const received: string[] = [];
@@ -330,6 +388,7 @@ test("focus shortcuts do not steal focus or keystrokes from another host dialog"
 
 test("non-form tabs and explanations remain reactive without asking for an answer", async () => {
   const h = host();
+
   try {
     const result = await h.execute({ source: LOCAL_EXPLANATION_SOURCE, interaction: "local" });
     assert.equal(result.structuredContent.status, "mounted");
@@ -347,13 +406,16 @@ test("non-form tabs and explanations remain reactive without asking for an answe
 
 test("widget capacity is bounded, duplicate mount is idempotent and close releases capacity", async () => {
   const h = host();
+
   try {
     const mounted: any[] = [];
+
     for (let index = 0; index < MAX_LOCAL_WIDGETS; index++) {
       const result = await h.execute({ source: SOURCE, interaction: "local" }, `bounded-${index}`);
       assert.equal(result.structuredContent.status, "mounted");
       mounted.push(result.structuredContent);
     }
+
     const again = await h.execute({ source: SOURCE, interaction: "local" }, "bounded-0");
     assert.deepEqual(again.structuredContent, mounted[0]);
     assert.equal(h.entries.length, MAX_LOCAL_WIDGETS);
@@ -375,8 +437,10 @@ for (const operation of ["setWidget", "appendEntry"] as const) test(`a failed ho
   const h = host();
   const owner: any = operation === "setWidget" ? h.ctx.ui : h.api;
   const original = owner[operation];
+
   try {
     owner[operation] = () => { throw new Error(`Test ${operation} failure`); };
+
     const result = await h.execute({ source: SOURCE, interaction: "local" }, "failed-mount");
     assert.equal(result.structuredContent.status, "error");
     assert.match(result.structuredContent.error, new RegExp(operation));
@@ -394,8 +458,10 @@ for (const operation of ["setWidget", "appendEntry"] as const) test(`a failed ho
 test("a local view defensively refuses a runtime-injected submission action", () => {
   const model = new DocumentModel(SOURCE);
   const results: unknown[] = [];
+
   const view = new OpenUIView(model, { interaction: "local", theme, getHeight: () => 20,
     requestRender() {}, onDone(result) { results.push(result); }, onBlur() {} });
+
   try {
     const button = childNodes(model.root!).find(node => node.typeName === "Button")!;
     button.props.action = { steps: [{ type: "continue_conversation", message: "leaked" }] };
@@ -412,6 +478,7 @@ for (const source of [
   '$hidden = false;\nroot = Stack([$hidden ? Button("Hidden send", @ToAssistant("answer")) : Text("Safe-looking branch")]);',
 ]) test("local mode rejects submission paths without mounting or opening a form: " + source.slice(0, 45), async () => {
   const h = host();
+
   try {
     const result = await h.execute({ source, interaction: "local" });
     assert.equal(result.structuredContent.status, "error");
@@ -425,6 +492,7 @@ for (const source of [
 
 test("local mode rejects fullscreen and malformed source with actionable diagnostics", async () => {
   const h = host();
+
   try {
     for (const args of [
       { source: SOURCE, interaction: "local", presentation: "fullscreen" },
@@ -434,6 +502,7 @@ test("local mode rejects fullscreen and malformed source with actionable diagnos
       assert.equal(result.structuredContent.status, "error");
       assert.match(result.structuredContent.error, /inline|fullscreen|Unknown|unknown/i);
     }
+
     assert.equal(h.entries.length, 0);
     assert.equal(h.opens, 0);
   } finally { await h.shutdown(); }
@@ -441,6 +510,7 @@ test("local mode rejects fullscreen and malformed source with actionable diagnos
 
 test("existing static displays and answer-collecting forms retain their separate outcomes", async () => {
   const h = host();
+
   try {
     const displayed = await h.execute({ source: 'root = Stack([Text("Static report")]);' });
     assert.deepEqual(displayed.structuredContent, { status: "displayed" });
@@ -457,6 +527,7 @@ test("existing static displays and answer-collecting forms retain their separate
 
 for (const mode of ["on", "only"] as const) test(`native QuickJS ${mode} completes while its local widget remains interactive`, { timeout: 15_000 }, async () => {
   const h = host(mode);
+
   try {
     const code = `const result = await tools.show_ui({source:${JSON.stringify(SOURCE)},interaction:"local"}); text(result); text("CALLER_CONTINUED");`;
     const result = await h.tools.get("codemode").execute("native-parent", { code }, h.ctx.signal, undefined, h.ctx);

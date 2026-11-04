@@ -2,6 +2,18 @@
 
 Recorded release checks and their scope. These results do not guarantee behavior with every model or environment.
 
+## 0.8.0 strict lint cleanup (2026-11-05)
+
+On Linux with Node 24.22.1, npm 12.2.1, Pi and TUI development dependencies 1.4.0, and lang-core 1.0.2, independent review approved the completed cleanup with no blocking findings. `npm run lint` reported zero errors and warnings, `npm run typecheck` passed, and all 241 existing tests passed without skips. Every configured lint rule remained enabled. Existing test names and assertion counts were preserved; no unit tests were added.
+
+Independent native probes exercised keyboard and mouse input, immediate typed table edits, hidden invalid editors, collection blocking, Set and Reset, rollback, scrolling, narrow layouts, local interaction, streaming, and Callout dismissal. All 314 fresh ANSI and text captures matched the implementation captures, which matched the pre-cleanup baseline. All 28 component schemas remained unchanged. A 1,710-case component and streaming comparison found only eight intentional earlier diagnostics for incomplete raw-object headers. All 102 action transaction comparisons matched. The complete AST checks covered all 17 installed variants, 64 valid cases, 95 malformed rejections, and atomic failure. Existing persistence and branch-aware replay tests passed.
+
+Evidence is retained in `/tmp/openui-lint-cleanup/phase2/`, including `purpose-report.md` and `review-final/report.md`. The [release notes](release-notes.md#080) identify intentional malformed-input rejection and TypeScript migration requirements. The version update changes package metadata only; the final review nit removes one explanatory comment without changing runtime code.
+
+After the version update, lint, typecheck, and all 241 tests passed again. The final Oxlint JSON contains no diagnostics. Package and lockfile versions both equal `0.8.0`, and `git diff --check` passed. Final command logs are in `/tmp/openui-lint-cleanup/release-080/`.
+
+Optional PCC verification remains blocked because `OPENUI_PCC_PACKAGE` and `PI_CODING_AGENT_DIR` are unset. Native checks use installed widgets with simulated host and terminal boundaries. No fresh real-model evaluation, deterministic-provider CLI session, browser verification, physical-terminal test, or performance measurement is claimed. Earlier CLI and compatibility records below retain their original scope.
+
 ## Callout dismissal hit bounds (2026-11-04)
 
 Native Callout dismissal now uses the visible button span on each rendered line. Focus markers, indentation, trailing padding, heading, body, and borders do not dismiss the notice. The rendered lines and public contracts are unchanged.

@@ -8,16 +8,20 @@ function fixture(source: string) {
   const model = new DocumentModel(source);
   assert.equal(model.valid, true, model.diagnostics.join("; "));
   const results: UIResult[] = [];
+
   const view = new OpenUIView(model, {
     requestRender() {}, getHeight: () => 40,
     onDone: result => results.push(result),
   });
+
   const lines = () => view.render(80).map(stripTerminalSequences);
   const text = () => lines().join("\n");
+
   const mouse = (type: TuiMouseEvent["type"], x: number, y: number) => view.handleMouse({
     type, button: "left", x, y, screenX: x, screenY: y,
     width: 80, height: 40, shift: false, alt: false, ctrl: false,
   });
+
   const click = (needle: string) => {
     const y = lines().findIndex(line => line.includes(needle));
     assert.ok(y >= 0, `Expected visible ${needle}`);
@@ -25,14 +29,17 @@ function fixture(source: string) {
     mouse("press", x, y);
     lines();
     mouse("release", x, y);
+
     return mouse("click", x, y);
   };
+
   return { model, view, results, lines, text, click };
 }
 
 test("keyboard @Set stays open and redraws reactive Text and Table on repeated activation", () => {
   const f = fixture(`$count = 0;
 root = Stack([Text("Count: " + $count), Table(["Counter"], [[$count]]), Button("Increment", @Set($count, $count + 1))]);`);
+
   for (let count = 1; count <= 3; count++) {
     f.view.handleInput("\r");
     assert.equal(f.model.state.$count, count);
@@ -46,6 +53,7 @@ root = Stack([Text("Count: " + $count), Table(["Counter"], [[$count]]), Button("
 test("mouse local actions and keyboard local actions use the same dispatcher", () => {
   const f = fixture(`$count = 0;
 root = Stack([Text("Count: " + $count), Button("Increment", @Set($count, $count + 1))]);`);
+
   const mouseResult = f.click("[ Increment ]");
   assert.equal(mouseResult?.focus, true, "local actions keep the panel focused");
   assert.equal(f.model.state.$count, 1);
@@ -59,6 +67,7 @@ test("@Reset restores declared state and edited native inputs without closing th
   const f = fixture(`$count = 2;
 $note = "initial";
 root = Stack([Text("Count: " + $count), Input("note", "Note", $note), Button("Increment", @Set($count, $count + 1)), Button("Reset", @Reset($count, $note))]);`);
+
   f.click("[ Increment ]");
   f.click("Note");
   f.view.handleInput("\x05");
@@ -75,6 +84,7 @@ test("Action local steps see earlier state changes within the same activation", 
   const f = fixture(`$count = 0;
 $note = "";
 root = Stack([Text($note), Button("Update", Action([@Set($count, $count + 1), @Set($note, "Count " + $count)]))]);`);
+
   f.view.handleInput("\r");
   assert.deepEqual(f.model.state, { $count: 1, $note: "Count 1" });
   assert.match(f.text(), /Count 1/);
@@ -87,6 +97,7 @@ test("@ToAssistant submits message and context after prior steps using latest ed
   const f = fixture(`$count = 0;
 $note = "";
 root = Stack([Input("note", "Note", $note), Button("Send", Action([@Set($count, $count + 1), @Set($count, $count + 1), @ToAssistant("Count " + $count, {count: $count, note: $note})]))]);`);
+
   f.view.handleInput("edited");
   f.view.handleInput("\t");
   f.view.handleInput("\r");
@@ -114,6 +125,7 @@ test("failed local actions keep valid UI editable; correcting state and retrying
   const f = fixture(`$choice = "One";
 $draft = "invalid";
 root = Stack([Select("choice", "Choice", ["One", "Two"], $choice), Input("draft", "Draft", $draft), Button("Apply", @Set($choice, $draft))]);`);
+
   f.click("[ Apply ]");
   assert.equal(f.model.valid, true);
   assert.equal(f.model.formValues.choice, "One", "invalid update must be rolled back");
@@ -133,6 +145,7 @@ root = Stack([Select("choice", "Choice", ["One", "Two"], $choice), Input("draft"
 test("streaming still blocks local and terminal actions from both keyboard and mouse", () => {
   const source = `$count = 0;
 root = Stack([Text("Count: " + $count), Button("Increment", @Set($count, $count + 1)), Button("Send", @ToAssistant("done"))]);`;
+
   const f = fixture(source);
   f.model.update(source, true);
   f.view.refresh();
@@ -157,6 +170,7 @@ test("legacy string actions retain their original result shape", () => {
 test("unsupported action steps report a recoverable error without partial state changes or submission", () => {
   const f = fixture(`$count = 0;
 root = Stack([Text("Count: " + $count), Button("Unsupported", Action([@Set($count, 1), @OpenUrl("https://example.com")])), Button("Increment", @Set($count, $count + 1))]);`);
+
   f.view.handleInput("\r");
   assert.match(f.text(), /Action error:.*Unsupported action/);
   assert.equal(f.model.state.$count, 0);

@@ -8,11 +8,15 @@ import { OpenUIView, type UIResult, type ViewOptions } from "../src/view.js";
 
 // Use Pi's shipped themes without mutating its process-wide active theme.
 const { getThemeByName } = await import(new URL("./modes/interactive/theme/theme.js", import.meta.resolve("@earendil-works/pi-coding-agent")).href);
+
 const themes = ["dark", "light"].map(name => {
+  // SAFETY: The installed Pi theme module returns a native Theme or undefined for a missing name.
   const theme = getThemeByName(name) as Theme | undefined;
   assert.ok(theme, `Pi must supply the ${name} theme`);
+
   return theme;
 });
+
 const SOURCE = `$choice = "Review";
 $note = "ab界cd";
 root = Stack([Text("A refined native form"), Select("choice", "Next step", ["Review", "Implement", "Test"], $choice), Input("note", "Instructions", $note, "Optional note"), Table(["Field", "Value"], [["Choice", $choice], ["Note", $note]]), Button("Send", @ToAssistant("Use these values"))]);`;
@@ -27,24 +31,34 @@ function fixture(theme: Theme, source = SOURCE, initialWidth = 120, initialHeigh
   const view = new OpenUIView(model, options);
   const render = () => view.render(width);
   const plain = () => render().map(stripTerminalSequences);
+
   function at(text: string): [number, number] {
     const lines = plain();
     const y = lines.findIndex(line => line.includes(text));
     assert.ok(y >= 0, `Missing ${text}:\n${lines.join("\n")}`);
+
     return [lines[y].indexOf(text), y];
   }
+
   function mouse(type: TuiMouseEvent["type"], x: number, y: number) {
     return view.handleMouse({ type, button: "left", x, y, screenX: x, screenY: y, width, height, shift: false, alt: false, ctrl: false });
   }
+
   function click(x: number, y: number) {
-    mouse("press", x, y); render(); mouse("release", x, y); return mouse("click", x, y);
+    mouse("press", x, y); render(); mouse("release", x, y);
+
+ return mouse("click", x, y);
   }
-  return { model, view, options, results, render, plain, at, click, resize(w: number, h: number) { width = w; height = h; return render(); } };
+
+  return { model, view, options, results, render, plain, at, click, resize(w: number, h: number) { width = w; height = h;
+
+ return render(); } };
 }
 
 test("Pi dark and light themes style titles, selected controls, table headers and hints", () => {
   const previousLevel = chalk.level;
   chalk.level = 3; // Exercise Pi's Chalk-backed emphasis as in a color-capable TTY.
+
   try { for (const theme of themes) {
     const f = fixture(theme);
     const frame = f.render();
@@ -102,6 +116,7 @@ test("themed Unicode controls remain bounded at narrow widths and short heights"
   for (const theme of themes) {
     const f = fixture(theme);
     f.view.handleInput("\t");
+
     for (const width of [120, 80, 40, 39, 16, 8, 3, 2, 1, 0]) {
       for (const height of [40, 8, 3, 2, 1]) {
         const frame = f.resize(width, height);
@@ -114,6 +129,7 @@ test("themed Unicode controls remain bounded at narrow widths and short heights"
 
 test("action failures use the host error color while keeping the panel interactive", () => {
   const source = '$choice = "One";\nroot = Stack([Select("choice", "Choice", ["One", "Two"], $choice), Button("Apply", @Set($choice, "Missing"))]);';
+
   for (const theme of themes) {
     const f = fixture(theme, source);
     const [x, y] = f.at("[ Apply ]");
@@ -129,6 +145,7 @@ test("action failures use the host error color while keeping the panel interacti
 
 test("host styling survives while model-provided terminal escapes are stripped", () => {
   const hostile = "Unsafe\x1b[2J\x1b]52;c;ZXZpbA==\x07\x1b_pi:c\x07\x1b[31m payload";
+
   for (const theme of themes) {
     const f = fixture(theme, `root = Stack([Text(${JSON.stringify(hostile)}), Table(["Column"], [[${JSON.stringify(hostile)}]]), Button(${JSON.stringify(hostile)}, "send")]);`);
     const frame = f.render().join("\n");

@@ -6,6 +6,7 @@ import { createInlineDocument, hasInteractiveContent, isInlineDocument, renderIn
 import { createReceipt, isSummaryOutcome, renderReceipt } from "../src/summary.js";
 
 const plain = (lines: string[]) => lines.map(line => stripTerminalSequences(line).trimEnd()).join("\n");
+
 const SOURCE = `root = Stack([
   Text("Compare review options", {bold: true}),
   Row([Badge("Ready", "success"), Progress(3, 4, "Prepared checks")]),
@@ -19,13 +20,19 @@ test("display-only documents render actual themed components without dialog cont
   assert.equal(model.valid, true, model.diagnostics.join("\n"));
   assert.equal(hasInteractiveContent(model), false);
   const colors: string[] = [];
+
   const component = renderInlineDocument(createInlineDocument(SOURCE, "Review choices"), {
-    fg(color, text) { colors.push(color); return text; }, bold: text => text,
+    fg(color, text) { colors.push(color);
+
+ return text; }, bold: text => text,
   }, { expanded: true });
+
   const output = plain(component.render(88));
+
   for (const expected of ["Review choices", "Compare review options", "Ready", "Prepared checks", "75%", "Trade-offs", "Thorough", "30 minutes", "Run the tests", "npm test"]) {
     assert.ok(output.includes(expected), `Expected actual content: ${expected}`);
   }
+
   assert.doesNotMatch(output, /Esc cancel|Tab focus|F2|Submitted|Your response/);
   assert.ok(colors.includes("success"));
   assert.ok(colors.includes("accent"));
@@ -61,6 +68,7 @@ test("compact inline documents disclose truncation and expansion restores all co
   assert.match(compactOutput, /Expand to see the full document/);
   assert.doesNotMatch(compactOutput, /Evidence item 24/);
   assert.match(plain(expanded.render(80)), /Evidence item 24/);
+
   for (const width of [0, 1, 2, 9, 30, 80]) {
     for (const component of [compact, expanded]) {
       assert.ok(component.render(width).every(line => visibleWidth(line) <= width), `Overflow at ${width}`);

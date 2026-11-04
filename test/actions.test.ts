@@ -3,16 +3,21 @@ import { test } from "node:test";
 import type { ElementNode } from "@openuidev/lang-core";
 import { DocumentModel, limits, systemPrompt } from "../src/model.js";
 
+// SAFETY: The action fixtures declare Stack roots whose children are all components.
 const nodes = (model: DocumentModel) => model.root!.props.children as ElementNode[];
+
 const button = (model: DocumentModel, label?: string) => nodes(model).find(node => node.typeName === "Button" && (!label || node.props.label === label))!;
+
 function modelFor(action: string, declarations = '$count = 0\n$note = ""', children = 'Text("Count: " + $count), Input("note", "Note", $note)') {
   const model = new DocumentModel(`${declarations}\nroot = Stack([${children}, Button("Run", ${action})])`);
   assert.equal(model.valid, true, model.diagnostics.join("\n"));
+
   return model;
 }
 
 test("native Set uses lang-core evaluation and repeated activation stays local", () => {
   const model = modelFor('@Set($count, $count + 1)');
+
   for (let count = 1; count <= 3; count++) {
     assert.deepEqual(model.activate(button(model)), { status: "updated" });
     assert.equal(model.state.$count, count);
@@ -70,6 +75,7 @@ test("step count bounds include nested Action lists", () => {
   const model = modelFor(action);
   const result = model.activate(button(model));
   assert.equal(result.status, "error");
+
   if (result.status === "error") assert.match(result.error, /at most 32/);
   assert.equal(model.state.$count, 0);
 });
@@ -78,6 +84,7 @@ test("invalid results roll back all changes and preserve editability and pristin
   const model = modelFor('Action([@Set($count, 4), @Set($note, 99)])');
   const result = model.activate(button(model));
   assert.equal(result.status, "error");
+
   if (result.status === "error") assert.match(result.error, /UI invalid/);
   assert.deepEqual(model.state, { $count: 0, $note: "" });
   assert.equal(model.valid, true);
@@ -105,6 +112,7 @@ test("action source is frozen even if the button disappears after its local step
   assert.equal(model.valid, true, model.diagnostics.join("\n"));
   const outcome = model.activate(button(model));
   assert.equal(outcome.status, "submitted");
+
   if (outcome.status === "submitted") assert.deepEqual(outcome.context, { count: 1 });
   assert.equal(nodes(model)[0].props.text, "Sent");
 });
@@ -114,6 +122,7 @@ test("generated buttons preserve their loop scope while submission sees local ch
   assert.equal(model.valid, true, model.diagnostics.join("\n"));
   const outcome = model.activate(button(model, "Send two"));
   assert.equal(outcome.status, "submitted");
+
   if (outcome.status === "submitted") {
     assert.equal(outcome.message, "Count 1");
     assert.deepEqual(outcome.context, { count: 1, id: "two" });

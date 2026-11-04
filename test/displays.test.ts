@@ -13,13 +13,20 @@ const styled: PresentationStyle = {
   underline: text => `\x1b[4m${text}\x1b[24m`,
   strikethrough: text => `\x1b[9m${text}\x1b[29m`,
 };
-const element = (typeName: string, props: Record<string, unknown>): ElementNode => ({ type: "element", typeName, props, partial: false });
-const render = (type: string, props: Record<string, unknown>, width = 60, style = styled) => renderDisplay(element(type, props), width, style)!;
+
+const element = (typeName: string, props: ElementNode["props"]): ElementNode => ({ type: "element", typeName, props, partial: false });
+
+const render = (type: string, props: ElementNode["props"], width = 60, style = styled) => renderDisplay(element(type, props), width, style)!;
+
 const plain = (lines: string[]) => lines.map(stripTerminalSequences).join("\n");
 
 test("enhanced Text applies semantic tone and trusted bold/italic after sanitization", () => {
   const calls: string[] = [];
-  const style: PresentationStyle = { ...styled, fg: (token, text) => { calls.push(token); return styled.fg(token, text); } };
+
+  const style: PresentationStyle = { ...styled, fg: (token, text) => { calls.push(token);
+
+ return styled.fg(token, text); } };
+
   const lines = render("Text", { text: "Status\x1b[31m ready", settings: { tone: "success", bold: true, italic: true } }, 30, style);
   assert.match(plain(lines), /Status ready/);
   assert.ok(calls.includes("success"));
@@ -42,6 +49,7 @@ test("native Markdown renders headings, emphasis, lists and literal HTML without
 
 test("Markdown links never retain OSC 8 activation targets in either terminal capability mode", () => {
   const original = getCapabilities();
+
   try {
     for (const hyperlinks of [false, true]) {
       setCapabilities({ ...original, hyperlinks });
@@ -59,6 +67,7 @@ test("CodeBlock preserves source, labels the language and safely falls back for 
     const text = plain(lines);
     assert.match(text, /const answer = 42;/);
     assert.match(text, /  return answer;/);
+
     if (language) assert.match(text, new RegExp(language));
     assert.ok(lines.every(line => visibleWidth(line) <= 60));
   }
@@ -84,7 +93,11 @@ test("ordered and unordered List align wrapped items and preserve numbering", ()
 
 test("Badge and Progress use semantic status colors with an explicit progress fraction", () => {
   const calls: string[] = [];
-  const style: PresentationStyle = { ...styled, fg: (token, text) => { calls.push(token); return styled.fg(token, text); } };
+
+  const style: PresentationStyle = { ...styled, fg: (token, text) => { calls.push(token);
+
+ return styled.fg(token, text); } };
+
   assert.match(plain(render("Badge", { text: "Ready", tone: "success" }, 30, style)), /\[ Ready \]/);
   assert.ok(calls.includes("success"));
   const progress = render("Progress", { value: 3, max: 4, label: "Build tasks" }, 30, style);
@@ -113,7 +126,8 @@ test("Table preserves content-fit columns and changes to labeled records on narr
 
 test("all display families sanitize model escapes and fit narrow or zero-width viewports", () => {
   const hostile = "界🙂 text\x1b[2J\x1b]52;c;ZXZpbA==\x07\x1b_pi:c\x07";
-  const cases: Array<[string, Record<string, unknown>]> = [
+
+  const cases: Array<[string, ElementNode["props"]]> = [
     ["Text", { text: hostile, settings: { tone: "accent", bold: true } }],
     ["Markdown", { text: `# ${hostile}\n\n**strong** [label](https://example.com)` }],
     ["CodeBlock", { code: hostile, language: "unknown" }],
@@ -123,6 +137,7 @@ test("all display families sanitize model escapes and fit narrow or zero-width v
     ["Divider", { label: hostile }],
     ["Table", { columns: [hostile], rows: [[hostile]] }],
   ];
+
   for (const [type, props] of cases) {
     for (const width of [0, 1, 2, 3, 8, 16, 40, 80]) {
       const lines = render(type, props, width);
@@ -133,5 +148,6 @@ test("all display families sanitize model escapes and fit narrow or zero-width v
       assert.equal(output.includes("\x1b_pi:c"), false, type);
     }
   }
+
   assert.equal(renderDisplay(element("Input", {}), 80, styled), undefined);
 });

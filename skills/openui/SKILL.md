@@ -56,7 +56,7 @@ Choose an interaction pattern before selecting components:
 - Local actions cannot fetch fresh data, run tools or execute scripts. If the agent needs a choice for new evidence or external work, use collect mode to submit it, then use the appropriate tools. A local widget never forwards its edited values; do not infer an answer from its mounting, focus changes or dismissal. Do not label a local state update as a completed deployment, live refresh or actual measured progress.
 - Treat Pi's keyboard navigation, resizing and theme as part of the design. Avoid meaning conveyed only by color, excessive nesting, decorative borders, long option labels or layouts that depend on a wide terminal. Use semantic styling sparingly.
 
-Before calling the tool, check the interaction mode, complete syntax, useful controls and bound dependent values. In collect mode, the final button must accurately describe submission. In local mode, omit all submission paths, including hidden or conditional ones.
+Before calling the tool, check the interaction mode, complete syntax, useful controls and bound dependent values. Check that each declaration starts on its own line and every Set/Reset target is declared before `root`. In collect mode, the final button must accurately describe submission. In local mode, omit all submission paths, including hidden or conditional ones.
 
 ## Choose components by the user's task
 
@@ -88,7 +88,7 @@ Before calling the tool, check the interaction mode, complete syntax, useful con
 ## Build a usable document
 
 1. Put the question or purpose first. Ask only for information needed for the current task, and use existing context for sensible defaults.
-2. Declare `$variables` with the correct types: strings for text, dates and single selections; booleans for Checkbox/Toggle; numbers for NumberInput/Slider; string arrays for MultiSelect; booleans for Accordion; arrays of plain typed records for EditableTable.
+2. Declare `$variables` with the correct types: strings for text, dates and single selections; booleans for Checkbox/Toggle; numbers for NumberInput/Slider; string arrays for MultiSelect; booleans for Accordion; arrays of plain typed records for EditableTable. Put each variable declaration and named assignment on its own line. Do not combine declarations on one line with semicolons. Declare every `$variable` used by Set or Reset before `root`.
 3. Give every field a unique name, including Tabs, Steps, Accordion and EditableTable. Names are data keys; labels are what the user reads. Keep option, page and tree values unique.
 4. Use common `{description, required, disabled, error}` settings only when needed. Required boolean fields must be true. A disabled field retains its value in the submitted result. Disabled Tabs/Steps also disable their descendants.
 5. Use EditableTable for bounded record edits, not read-only comparisons. Match every row exactly to the unique column keys and string, number or boolean types. Valid edits apply locally on each keystroke, and booleans toggle immediately. Invalid numeric text stays visible, preserves the last typed value and blocks collection only. Other controls and navigation remain usable. Do not add Save or Discard buttons. Local edits do not submit or persist externally. Do not generate helper components or a separate catalog profile. See the [table reference](../../docs/components.md#editable-tables) for keys, limits and editing controls.

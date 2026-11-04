@@ -13,20 +13,29 @@ function fixture(source: string, initialWidth = 110, initialHeight = 45) {
   const view = new OpenUIView(model, { requestRender() {}, getHeight: () => height, onDone: result => results.push(result) });
   const lines = () => view.render(width).map(stripTerminalSequences);
   const text = () => lines().join("\n");
+
   function at(needle: string): [number, number] {
     const frame = lines();
     const y = frame.findIndex(line => line.includes(needle));
     assert.ok(y >= 0, `Missing ${needle}:\n${frame.join("\n")}`);
+
     return [frame[y].indexOf(needle), y];
   }
+
   function mouse(type: TuiMouseEvent["type"], x: number, y: number) {
     return view.handleMouse({ type, button: "left", x, y, screenX: x, screenY: y, width, height, shift: false, alt: false, ctrl: false });
   }
-  function clickAt(x: number, y: number) { mouse("press", x, y); lines(); mouse("release", x, y); return mouse("click", x, y); }
+
+  function clickAt(x: number, y: number) { mouse("press", x, y); lines(); mouse("release", x, y);
+
+ return mouse("click", x, y); }
+
   return { model, view, results, lines, text, at, clickAt,
     key(value: string) { lines(); view.handleInput(value); },
     click(needle: string) { return clickAt(...at(needle)); },
-    resize(w: number, h: number) { width = w; height = h; return lines(); },
+    resize(w: number, h: number) { width = w; height = h;
+
+ return lines(); },
   };
 }
 
@@ -75,6 +84,7 @@ for (const kind of ["Tabs", "Steps"] as const) {
     f.key("\t"); // Send; no hidden page controls intervene.
     f.key("\r");
     assert.equal(f.results[0]?.status, "submitted");
+
     if (f.results[0]?.status === "submitted") assert.equal(f.results[0].values.second, "edited B");
   });
 
@@ -131,6 +141,7 @@ test("nested Section and Card retain action hit coordinates and reactive state a
   assert.equal(f.model.state.$count, 2);
   f.click("[ Send ]");
   assert.equal(f.results[0]?.status, "submitted");
+
   if (f.results[0]?.status === "submitted") assert.deepEqual(f.results[0].context, { count: 2 });
 });
 
@@ -149,6 +160,7 @@ test("required fields on inactive pages block submission until corrected without
   f.key("Ada");
   f.click("[ Send ]");
   assert.equal(f.results[0]?.status, "submitted");
+
   if (f.results[0]?.status === "submitted") assert.equal(f.results[0].values.name, "Ada");
 });
 
@@ -171,6 +183,7 @@ test("hidden numeric drafts block submission, reveal their page and can be clear
   assert.equal(f.results.length, 0, "reset stays local even while the field is hidden");
   f.click("[ Send ]");
   assert.equal(f.results[0]?.status, "submitted");
+
   if (f.results[0]?.status === "submitted") assert.equal(f.results[0].values.quantity, 2);
 });
 
@@ -198,6 +211,7 @@ root = Stack([
   Input("enabled", "Enabled note", $enabled),
   Button("Send", @ToAssistant("Use enabled values"))
 ]);`);
+
     f.key("kept");
     assert.equal(f.model.formValues.enabled, "kept", "keyboard focus skips the entire disabled subtree");
     assert.equal(f.model.formValues.locked, "");
@@ -217,6 +231,7 @@ root = Stack([
     f.key("\t");
     f.key("\r");
     assert.equal(f.results[0]?.status, "submitted", "disabled required fields must not block submission");
+
     if (f.results[0]?.status === "submitted") {
       assert.equal(f.results[0].values.enabled, "kept value");
       assert.equal(f.results[0].values.locked, "");

@@ -7,7 +7,7 @@ import { DocumentModel, limits } from "../src/model.js";
 import type { OpenUIView } from "../src/view.js";
 
 // A host boundary fixture: the actual lang-core model and Pi TUI widgets run inside it.
-function host(mode = "tui") {
+function host(mode: ExtensionContext["mode"] = "tui") {
   const events = new Map<string, Function>();
   const tools = new Map<string, any>();
   const commands = new Map<string, any>();
@@ -17,32 +17,39 @@ function host(mode = "tui") {
   let opens = 0;
   let closes = 0;
   let aborts = 0;
-  let customOptions: unknown;
-  const api = {
+  let customOptions: Parameters<ExtensionContext["ui"]["custom"]>[1];
+
+  const api: Pick<ExtensionAPI, "registerToolRenderer" | "registerMessageRenderer" | "registerEntryRenderer" | "appendEntry" | "on" | "registerTool" | "registerCommand" | "getActiveTools" | "sendUserMessage"> & { sendMessage(message: Parameters<ExtensionAPI["sendMessage"]>[0] & { content: string }, options: Parameters<ExtensionAPI["sendMessage"]>[1]): void } = {
     registerToolRenderer() {},
     registerMessageRenderer() {},
     registerEntryRenderer() {},
     appendEntry() {},
-    on: (name: string, handler: Function) => events.set(name, handler),
+    on: (name, handler) => {
+      events.set(name, handler);
+
+      return () => { events.delete(name); };
+    },
     registerTool: (tool: any) => tools.set(tool.name, tool),
     registerCommand: (name: string, command: any) => commands.set(name, command),
     getActiveTools: () => [...tools.keys()],
-    sendUserMessage: (message: string, options: unknown) => sent.push({ message, options }),
-    sendMessage: (message: {content:string}, options: unknown) => sent.push({ message: message.content, options }),
-  } as unknown as ExtensionAPI;
-  const ctx = {
+    sendUserMessage: (message: string, options: Parameters<ExtensionAPI["sendUserMessage"]>[1]) => sent.push({ message, options }),
+    sendMessage: (message: Parameters<ExtensionAPI["sendMessage"]>[0] & { content: string }, options: Parameters<ExtensionAPI["sendMessage"]>[1]) => sent.push({ message: message.content, options }),
+  };
+
+  const ctx: Pick<ExtensionContext, "mode" | "hasUI" | "signal" | "abort"> & { ui: Pick<ExtensionContext["ui"], "notify" | "custom"> } = {
     mode,
     hasUI: mode === "tui" || mode === "rpc",
     signal: undefined,
     abort() { aborts++; },
     ui: {
       notify: (message: string) => notices.push(message),
-      custom: (factory: Function, options: unknown) => {
+      custom: <T>(factory: Function, options: Parameters<ExtensionContext["ui"]["custom"]>[1]) => {
         customOptions = options;
         opens++;
-        return new Promise((resolve) => {
+
+        return new Promise<T>((resolve) => {
           let closed = false;
-          component = factory({ terminal: { rows: 30 }, requestRender() {} }, {}, {}, (result: unknown) => {
+          component = factory({ terminal: { rows: 30 }, requestRender() {} }, {}, {}, (result: T) => {
             if (closed) return;
             closed = true;
             closes++;
@@ -52,8 +59,11 @@ function host(mode = "tui") {
         });
       },
     },
-  } as unknown as ExtensionContext;
-  openuiExtension(api);
+  };
+
+  // SAFETY: This typed fixture supplies the registration/message capabilities exercised by OpenUI; no optional event bus is provided.
+  openuiExtension(api as ExtensionAPI);
+
   return {
     events, tools, commands, sent, notices, ctx,
     get opens() { return opens; },
@@ -61,7 +71,9 @@ function host(mode = "tui") {
     get aborts() { return aborts; },
     get customOptions() { return customOptions; },
     key(data: string) { assert.ok(component); component.render(80); component.handleInput(data); },
-    render() { assert.ok(component); return component.render(80).join("\n"); },
+    render() { assert.ok(component);
+
+ return component.render(80).join("\n"); },
     execute(source: string, id = "call-1", signal?: AbortSignal, presentation?: "inline" | "fullscreen") {
       return tools.get("show_ui").execute(id, { source, presentation }, signal, undefined, ctx);
     },
@@ -80,6 +92,7 @@ test("registers the tool, command and generated prompt only in TUI mode", () => 
   const h = host();
   assert.ok(h.tools.has("show_ui"));
   assert.ok(h.commands.has("openui-demo"));
+  // SAFETY: The host section dictionary starts empty; the registered handler adds only modelPrompt text.
   const event = { systemPromptOptions: { sections: {} as Record<string, string> } };
   h.events.get("before_agent_start")!(event, h.ctx);
   assert.match(event.systemPromptOptions.sections.openui, /Select/);
@@ -138,7 +151,7 @@ test("F2 remounts the same editable form without losing its draft or cancelling"
   h.key("\x1bOQ");
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.opens, 2);
-  assert.equal((h.customOptions as unknown as { overlay: boolean }).overlay, true);
+  assert.equal(h.customOptions!.overlay, true);
   assert.equal(h.render().split("\n").length, 30);
   assert.match(h.render(), /Ada/);
   h.key(" Lovelace");
@@ -161,7 +174,7 @@ test("a fullscreen argument arriving after streamed source reconciles the mounte
   const pending = h.execute(source, "call-1", undefined, "fullscreen");
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.opens, 2);
-  assert.equal((h.customOptions as unknown as { overlay: boolean }).overlay, true);
+  assert.equal(h.customOptions!.overlay, true);
   assert.equal(h.render().split("\n").length, 30);
   h.key("\x05"); h.key(" Lovelace"); h.key("\t"); h.key("\r");
   assert.deepEqual((await pending).structuredContent.values, { name: "Ada Lovelace" });
@@ -174,11 +187,11 @@ test("a user's F2 preview choice takes precedence over the final presentation ar
   h.stream(source);
   h.key("\x1bOQ");
   await new Promise(resolve => setImmediate(resolve));
-  assert.equal((h.customOptions as unknown as { overlay: boolean }).overlay, true);
+  assert.equal(h.customOptions!.overlay, true);
   const pending = h.execute(source, "call-1", undefined, "inline");
   await new Promise(resolve => setImmediate(resolve));
   assert.equal(h.opens, 2, "the completed request must not undo a user's expansion");
-  assert.equal((h.customOptions as unknown as { overlay: boolean }).overlay, true);
+  assert.equal(h.customOptions!.overlay, true);
   h.key("\r");
   assert.equal((await pending).structuredContent.status, "submitted");
   assert.equal(h.aborts, 0);
@@ -222,7 +235,7 @@ test("invalid source returns actionable diagnostics without opening a panel", as
 });
 
 test("RPC and headless modes never call custom()", async () => {
-  for (const mode of ["rpc", "json", "print"]) {
+  for (const mode of ["rpc", "json", "print"] as const) {
     const h = host(mode);
     const result = await h.execute('root = Text("hello");');
     assert.equal(result.isError, true);
@@ -339,6 +352,7 @@ test("oversized source is rejected before parsing or rendering", async () => {
 test("a failed host custom UI becomes an error result", async () => {
   const h = host();
   h.ctx.ui.custom = async () => { throw new Error("host failed"); };
+
   const result = await h.execute('root = Stack([Button("Send", "send")]);');
   assert.equal(result.isError, true);
   assert.match(result.details.error, /host failed/);

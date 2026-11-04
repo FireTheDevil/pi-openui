@@ -1,17 +1,24 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { Text, stripTerminalSequences } from "@earendil-works/pi-tui";
-import type { EntryRenderer, ExtensionAPI, ExtensionContext, ToolRendererResolver, ToolRenderers } from "@earendil-works/pi-coding-agent";
+import type { EntryRenderer, ExtensionAPI, Theme, ToolRendererResolver, ToolRenderers } from "@earendil-works/pi-coding-agent";
 import { CODE_RECEIPT_ENTRY, registerCodeSummaries } from "../src/code-summary.js";
-import { createReceipt, type SummaryOutcome } from "../src/summary.js";
+import { createReceipt, type Receipt, type SummaryOutcome } from "../src/summary.js";
 import { createInlineDocument, type InlineDocument } from "../src/inline-document.js";
 
 const outcome: SummaryOutcome = { status: "submitted", action: "continue_conversation", message: "Review configuration",
   values: { owner: "Ada", checks: ["Tests", "Types"], enabled: true, count: 3 }, state: { $owner: "Ada", $internal: "preserved" } };
+
 const header = "Script completed\nWall time 1.0 seconds\nOutput:\n";
-const theme = { fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text,
-  bold: (text: string) => text, italic: (text: string) => text } as any;
+
+const fixtureTheme: Pick<Theme, "fg" | "bg" | "bold" | "italic"> = { fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text,
+  bold: (text: string) => text, italic: (text: string) => text };
+
+// SAFETY: The receipt/code renderers exercised here use fg/bg/bold/italic; other presentation methods are optional.
+const theme = fixtureTheme as Theme;
+
 const text = (component: any) => component.render(100).map((line: string) => stripTerminalSequences(line).trimEnd()).join("\n");
+
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 
 function fixture() {
@@ -21,39 +28,53 @@ function fixture() {
   const appended: any[] = [];
   const immediate: string[] = [];
   let invalidations = 0;
+
   const api = {
     registerToolRenderer(value: ToolRendererResolver) { resolver = value; },
     registerEntryRenderer(type: string, value: EntryRenderer) { assert.equal(type, CODE_RECEIPT_ENTRY); entryRenderer = value; },
-    appendEntry(customType: string, data: unknown) {
-      const entry = { type: "custom", customType, data, id: `entry-${appended.length}`, parentId: null, timestamp: "2026-10-30" };
+    appendEntry(customType: string, data: Parameters<ExtensionAPI["appendEntry"]>[1]) {
+      const entry = { type: "custom" as const, customType, data, id: `entry-${appended.length}`, parentId: null, timestamp: "2026-10-30" };
       appended.push(entry); entries.push(entry);
       // Pi emits entry_appended and invokes the entry renderer immediately.
-      immediate.push(text(entryRenderer(entry as any, { expanded: false }, theme)));
+      immediate.push(text(entryRenderer(entry, { expanded: false }, theme)));
     },
-  } as unknown as ExtensionAPI;
+  };
+
   const hooks = registerCodeSummaries(api);
+
+  // SAFETY: This fixture supplies only context().args, whose code property is a string, to the original renderer.
   const original: ToolRenderers = {
     renderCall: args => new Text(`CODE: ${(args as { code: string }).code}`, 0, 0),
     renderResult: result => new Text(`CALLS: ${JSON.stringify(result.details?.calls ?? [])}\n${result.content.filter(item => item.type === "text").map(item => item.text === header ? "" : item.text).join("\n")}`, 0, 0),
   };
+
   const wrapped = resolver("codemode", () => original)!;
+
   const context = (id = "code") => ({ args: { code: "const result = await tools.show_ui({source: 'SECRET_SOURCE'}); text(result);" }, toolCallId: id,
     state: {}, cwd: "/workspace", invalidate() { invalidations++; }, lastComponent: undefined, executionStarted: true, argsComplete: true,
     isPartial: false, expanded: false, showImages: true, isError: false, durationMs: 1000, outputPad: 1 });
+
   const call = (id = "code/1", name = "show_ui") => ({ id, name, args: '{"source":"SECRET_SOURCE"}', status: "ok" });
   const result = (items: string[] = [JSON.stringify(outcome)], calls = [call()]) => ({ content: [{ type: "text" as const, text: header }, ...items.map(value => ({ type: "text" as const, text: value }))], details: { calls } });
+
   function record(value: SummaryOutcome = outcome, id = "code/1", parent: string | undefined = "code", document?: InlineDocument) {
     const receipt = createReceipt(value, undefined, { title: "Review setup" });
     const raw = clone(value);
+    const details: SummaryOutcome & { openuiReceipt: Receipt; openuiDocument?: InlineDocument } = { ...raw, openuiReceipt: receipt };
+
+    if (document) details.openuiDocument = document;
     hooks.onToolEnd({ type: "tool_execution_end", toolName: "show_ui", toolCallId: id, parentToolCallId: parent,
-      isError: value.status === "error", result: { content: [{ type: "text", text: JSON.stringify(raw) }], structuredContent: raw,
-        details: { ...raw, openuiReceipt: receipt, ...(document ? { openuiDocument: document } : {}) } } });
+      isError: value.status === "error", result: { content: [{ type: "text", text: JSON.stringify(raw) }], structuredContent: raw, details } });
+
     return raw;
   }
+
   function rehydrate(branch: any[]) {
     entries = branch;
-    hooks.rehydrate({ sessionManager: { getBranch: () => entries, getEntries: () => { throw new Error("Must not read sibling branches"); } } } as unknown as ExtensionContext);
+    const sessionManager = { getBranch: () => entries, getEntries: () => { throw new Error("Must not read sibling branches"); } };
+    hooks.rehydrate({ sessionManager });
   }
+
   return { hooks, wrapped, original, resolver, context, call, result, record, rehydrate, appended, immediate,
     get invalidations() { return invalidations; }, renderEntry(entry: any, expanded = false) { return entryRenderer(entry, { expanded }, theme); } };
 }
@@ -129,6 +150,7 @@ test("only exact known printed outcomes are omitted; derived output, whitespace,
     assert.match(text(f.wrapped.renderCall!(context.args, theme, context)), /SECRET_SOURCE/);
     assert.equal(result.content[1].text, output);
   }
+
   const f = fixture(); f.record();
   const result = { ...f.result(), details: { ...f.result().details, fullOutputPath: "/tmp/full-code-output" } };
   const context = f.context();

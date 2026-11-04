@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ElementNode } from "@openuidev/lang-core";
+import { z } from "zod";
+import type { RenderedNode } from "../src/catalog.js";
 import { stripTerminalSequences, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { childNodes } from "../src/catalog.js";
 import { DocumentModel } from "../src/model.js";
@@ -27,10 +28,12 @@ root = Stack([
   Button("Submit", @ToAssistant("Use this review configuration", {owner: $owner}))
 ]);`;
 
-function all(model: DocumentModel): ElementNode[] {
-  const nodes: ElementNode[] = [];
-  const visit = (node: ElementNode) => { nodes.push(node); childNodes(node).forEach(visit); };
+function all(model: DocumentModel): RenderedNode[] {
+  const nodes: RenderedNode[] = [];
+  const visit = (node: RenderedNode) => { nodes.push(node); childNodes(node).forEach(visit); };
+
   if (model.root) visit(model.root);
+
   return nodes;
 }
 
@@ -41,7 +44,9 @@ function fixture() {
   assert.equal(model.activate(all(model).find(node => node.typeName === "Button" && node.props.label === "Rename")!).status, "updated");
   const outcome = model.activate(all(model).find(node => node.typeName === "Button" && node.props.label === "Submit")!);
   assert.equal(outcome.status, "submitted");
+
   if (outcome.status !== "submitted") throw new Error("Expected submitted form");
+
   return { model, outcome };
 }
 
@@ -71,8 +76,8 @@ test("receipts use final labels and values across every field type and hidden pa
   assert.equal(fields.has("workflow"), false);
   assert.equal(receipt.fields.length, 11);
   assert.deepEqual(outcome, before);
-  assert.equal(typeof outcome.values.retries, "number");
-  assert.equal(typeof outcome.values.accepted, "boolean");
+  assert.equal(z.union([z.number(), z.nan(), z.literal(Infinity), z.literal(-Infinity)]).safeParse(outcome.values.retries).success, true);
+  assert.equal(z.boolean().safeParse(outcome.values.accepted).success, true);
   assert.deepEqual(outcome.values.checks, ["tests", "types"]);
 });
 
@@ -110,10 +115,14 @@ test("compact receipts omit extra fields while expanded receipts expose full fie
 
 test("receipt statuses use Pi semantic colors and cancellation or errors never include submitted fields", () => {
   const colors: string[] = [];
+
   const theme: HostTheme = {
-    fg: (color, value) => { colors.push(color); return `\x1b[36m${value}\x1b[39m`; },
+    fg: (color, value) => { colors.push(color);
+
+ return `\x1b[36m${value}\x1b[39m`; },
     bold: value => `\x1b[1m${value}\x1b[22m`,
   };
+
   const { model, outcome } = fixture();
   const submitted = renderReceipt(createReceipt(outcome, model), theme).render(80);
   assert.ok(colors.includes("success"));
@@ -131,11 +140,13 @@ test("receipt statuses use Pi semantic colors and cancellation or errors never i
 test("receipt renderers sanitize terminal controls and fit narrow Unicode viewports", () => {
   const hostile = "界🙂 text\x1b[2J\x1b]52;c;ZXZpbA==\x07\x1b_pi:c\x07";
   const outcome: SummaryOutcome = { status: "submitted", action: "send", values: { note: hostile }, state: {} };
+
   const receipt: Receipt = {
     version: 1, status: "submitted", title: hostile,
     fields: [{ name: "note", label: hostile, value: `${hostile}\n${"long value ".repeat(60)}` }],
     message: hostile,
   };
+
   for (const width of [0, 1, 2, 8, 24, 80]) {
     for (const expanded of [false, true]) {
       const cases: Component[] = [
@@ -143,6 +154,7 @@ test("receipt renderers sanitize terminal controls and fit narrow Unicode viewpo
         renderReceipt({ ...receipt, status: "error", error: hostile }, {}, { expanded }),
         renderOpenUICall(hostile, { title: hostile }, {}, expanded),
       ];
+
       for (const component of cases) {
         const lines = component.render(width);
         assert.ok(lines.every(line => visibleWidth(line) <= width), `Must fit ${width} columns`);
@@ -153,6 +165,7 @@ test("receipt renderers sanitize terminal controls and fit narrow Unicode viewpo
       }
     }
   }
+
   assert.ok(renderReceipt(receipt, {}).render(80).length < 25, "compact multiline values stay bounded");
 });
 

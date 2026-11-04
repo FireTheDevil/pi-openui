@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
+import { z } from "zod";
 import type { ElementNode } from "@openuidev/lang-core";
 import { DocumentModel, limits } from "../src/model.js";
 import { localActionError, localDocumentDiagnostics } from "../src/local-policy.js";
@@ -80,6 +81,7 @@ test("unprovable dynamic action sources and recursive aliases fail closed", () =
 
 test("compact shared action graphs are rejected before exponential lang-core materialization", () => {
   const lines = ['$count = 0', '$flag = false', 'a0 = @Reset($count)'];
+
   // Only 31 distinct actions, but expanding both branches recursively would
   // visit more than a billion action paths before the widget could mount.
   for (let index = 1; index <= 30; index++) lines.push(`a${index} = $flag ? a${index - 1} : a${index - 1}`);
@@ -91,6 +93,7 @@ test("compact shared action graphs are rejected before exponential lang-core mat
 
 test("static data expansion has the same bound while ordinary shared aliases remain supported", () => {
   const lines = ['a0 = [1]'];
+
   for (let index = 1; index <= 30; index++) lines.push(`a${index} = [a${index - 1}, a${index - 1}]`);
   lines.push('root = Stack([Text("Count: " + @Count(a30))])');
   assert.match(localDocumentDiagnostics(lines.join("\n")).join("\n"), /expands beyond 16,384 syntax nodes/);
@@ -107,6 +110,7 @@ test("memoized action graphs still reject cycles and excessive nesting on a deep
     'loop = other\nother = loop',
   ]) assert.notEqual(localDocumentDiagnostics(document("loop", declarations)).length, 0, declarations);
   const lines = ['$count = 0', '$flag = false', 'leaf = @Reset($count)', 'a0 = $flag ? leaf : leaf'];
+
   for (let index = 1; index <= limits.actionSteps; index++) lines.push(`a${index} = $flag ? a${index - 1} : leaf`);
   // Visit/cache leaf through a shallow path first; the deeper reuse still has
   // to satisfy the nesting limit, rather than bypassing it through the cache.
@@ -114,6 +118,7 @@ test("memoized action graphs still reject cycles and excessive nesting on a deep
   assert.match(localDocumentDiagnostics(lines.join("\n")).join("\n"), /nesting limit/);
 
   const aliases = ['$count = 0', 'a0 = @Reset($count)'];
+
   for (let index = 1; index <= limits.depth + 1; index++) aliases.push(`a${index} = a${index - 1}`);
   aliases.push(`root = Stack([Button("Deep", a${limits.depth + 1})])`);
   assert.match(localDocumentDiagnostics(aliases.join("\n")).join("\n"), /Cannot prove/);
@@ -130,10 +135,12 @@ test("invalid local steps are rejected before mounting", () => {
 
 test("evaluated-plan guard permits only valid local steps and rejects every submission shape", () => {
   const model = new DocumentModel(document("Action([@Set($count, $count + 1), @Reset($show)])"));
+  // SAFETY: This fixture declares one Button followed by Text in its Stack root.
   const button = (model.root!.props.children as ElementNode[])[0];
   assert.equal(localActionError(button.props.action), undefined);
   assert.deepEqual(model.activate(button), { status: "updated" });
   assert.equal(model.state.$count, 1);
+
   for (const action of [
     "submit", null, {}, { steps: [] },
     { steps: [{ type: "continue_conversation", message: "Answer" }] },
@@ -143,5 +150,5 @@ test("evaluated-plan guard permits only valid local steps and rejects every subm
     { steps: [{ type: "set", target: "count", valueAST: { k: "Num", v: 1 } }] },
     { steps: [{ type: "reset", targets: [] }] },
     { steps: [null] },
-  ]) assert.equal(typeof localActionError(action), "string", JSON.stringify(action));
+  ]) assert.equal(z.string().safeParse(localActionError(action)).success, true, JSON.stringify(action));
 });

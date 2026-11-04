@@ -5,10 +5,11 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { formatSkillsForPrompt, loadSkills } from "@earendil-works/pi-coding-agent";
 import { childNodes, DocumentModel } from "../src/model.js";
-import type { ElementNode } from "@openuidev/lang-core";
+import type { RenderedNode } from "../src/catalog.js";
 import { localDocumentDiagnostics } from "../src/local-policy.js";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+
 const skillPath = resolve(root, "skills/openui/SKILL.md");
 
 test("Pi discovers the bundled OpenUI skill without diagnostics and exposes it to native code-mode prompts", () => {
@@ -18,6 +19,7 @@ test("Pi discovers the bundled OpenUI skill without diagnostics and exposes it t
     skillPaths: [resolve(root, "skills")],
     includeDefaults: false,
   });
+
   assert.deepEqual(loaded.diagnostics, []);
   assert.equal(loaded.skills.length, 1);
   const skill = loaded.skills[0];
@@ -34,10 +36,13 @@ test("complete OpenUI examples in the skill parse with the shipped component sch
   const source = readFileSync(skillPath, "utf8");
   const examples = [...source.matchAll(/```openui\n([\s\S]*?)\n```/g)].map(match => match[1]);
   assert.equal(examples.length, 4);
+
   for (const [index, example] of examples.entries()) {
     const model = new DocumentModel(example);
+
     try {
       assert.equal(model.valid, true, `Example ${index + 1}: ${model.diagnostics.join("; ")}`);
+
       if (index === 0) assert.deepEqual(model.formValues, { depth: "focused" });
       else if (index === 1) {
         assert.deepEqual(model.formValues, { owner: "", checks: ["tests"], retries: 2, confirmed: false });
@@ -59,6 +64,7 @@ test("the skill's local example recalculates and resets without a submission pat
   const model = new DocumentModel(examples[3]);
   const children = () => childNodes(model.root!);
   const find = (type: string) => children().find(node => node.typeName === type)!;
+
   try {
     assert.equal(model.valid, true, model.diagnostics.join("; "));
     model.setField(find("NumberInput"), 10);
@@ -73,12 +79,16 @@ test("the skill's scenario example recomputes locally, resets and submits the de
   const skill = readFileSync(skillPath, "utf8");
   const examples = [...skill.matchAll(/```openui\n([\s\S]*?)\n```/g)].map(match => match[1]);
   const model = new DocumentModel(examples[2]);
-  function nodes(node: ElementNode): ElementNode[] { return [node, ...childNodes(node).flatMap(nodes)]; }
-  function find(type: string, name?: string): ElementNode {
+
+  function nodes(node: RenderedNode): RenderedNode[] { return [node, ...childNodes(node).flatMap(nodes)]; }
+
+  function find(type: string, name?: string): RenderedNode {
     const node = nodes(model.root!).find(node => node.typeName === type && (name === undefined || node.props.name === name || node.props.label === name));
     assert.ok(node, `Missing ${type} ${name ?? ""}`);
+
     return node;
   }
+
   try {
     assert.equal(model.valid, true, model.diagnostics.join("; "));
     model.setField(find("NumberInput", "people"), 5);
@@ -91,6 +101,7 @@ test("the skill's scenario example recomputes locally, resets and submits the de
     model.setField(find("NumberInput", "people"), 3);
     const result = model.activate(find("Button", "Use this estimate"));
     assert.equal(result.status, "submitted");
+
     if (result.status === "submitted") {
       assert.deepEqual(result.values, { people: 3, hours: 3, rate: 50 });
       assert.deepEqual(result.context, { people: 3, hours: 3, rate: 50, total: 450 });
@@ -102,6 +113,7 @@ test("the skill's local component reference resolves inside the shipped document
   const source = readFileSync(skillPath, "utf8");
   const links = [...source.matchAll(/\]\((\.\.?\/[^)#]+)(?:#[^)]*)?\)/g)].map(match => match[1]);
   assert.ok(links.length > 0);
+
   for (const link of links) {
     const target = resolve(dirname(skillPath), link);
     assert.ok(target.startsWith(resolve(root, "docs") + "/"));

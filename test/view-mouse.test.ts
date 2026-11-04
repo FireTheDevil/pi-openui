@@ -17,23 +17,31 @@ function fixture(source = SOURCE, initialWidth = 60, initialHeight = 30, fillHei
   let renders = 0;
   const view = new OpenUIView(model, { requestRender() { renders++; }, getHeight: () => height, onDone: value => results.push(value), fillHeight });
   const render = () => view.render(width).map(stripTerminalSequences);
+
   const row = (text: string) => {
     const y = render().findIndex(line => line.includes(text));
     assert.ok(y >= 0, `Expected visible row containing ${text}`);
+
     return y;
   };
+
   function mouse(type: TuiMouseEvent["type"], x: number, y: number, extra: Partial<TuiMouseEvent> = {}) {
     return view.handleMouse({ type, button: "left", x, y, screenX: x + 10, screenY: y + 7, width, height, shift: false, alt: false, ctrl: false, ...extra });
   }
+
   function click(x: number, y: number) {
     mouse("press", x, y);
     render(); // Pi redraws between press and release; selected lists may recenter.
     mouse("release", x, y);
     mouse("click", x, y, { clickCount: 1 });
   }
+
   render();
+
   return { model, view, results, render, row, mouse, click,
-    resize(w: number, h: number) { width = w; height = h; return render(); },
+    resize(w: number, h: number) { width = w; height = h;
+
+ return render(); },
     get renders() { return renders; },
   };
 }
