@@ -5,9 +5,9 @@ description: "Present explanations, comparisons, and exploratory responses with 
 
 # OpenUI in Pi
 
-Use components proactively when they materially improve understanding, exploration, comparison, or action, even without a visualization request. Do not ask permission merely to display a useful component. Respect requests for plain text and all approvals for external actions.
+Use OpenUI proactively when its supported layout or interaction offers a clear benefit over prose or a Markdown table: making related information easier to compare, letting users explore how values affect outcomes, revealing optional detail, or collecting structured answers. An explicit visualization request is not required. Do not ask permission merely to display a useful component. Respect requests for plain text and all approvals for external actions.
 
-Prefer prose for simple answers, reasoning, progress updates, and ordinary one-step edits. A small comparison may need only a Markdown table. Explain essential conclusions in natural language, not behind disclosures or required interaction. Use the simplest useful representation, without decorative controls or acknowledgement forms.
+Prefer prose for direct factual answers and explanations whose relationships are already clear without a visual structure. A small comparison may need only a Markdown table. Explain essential conclusions in natural language, not behind disclosures or required interaction. Use the simplest useful representation, without decorative controls or acknowledgement forms.
 
 The active `openui` prompt supplies schemas and language rules. Use only this terminal catalog, not React, HTML, or web components. Charts, maps, Mermaid, and interactive diagrams are unsupported. Use accurate prose, a supported representation, or another appropriate tool instead. Use artifact tools for shareable exports.
 
