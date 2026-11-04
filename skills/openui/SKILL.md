@@ -1,13 +1,35 @@
 ---
 name: openui
-description: Choose static displays, nonblocking local exploration, or answer-collecting interfaces with show_ui and OpenUI Lang in Pi. Use for comparisons, interactive explanations, scenario exploration, related answers and workflows even without an explicit UI request. Covers mode selection, focus, components, grounded data, state, actions, code/notebook execution and receipts.
+description: Present explanations, comparisons, and exploratory responses with OpenUI widgets when they materially help the user understand, explore, compare, or act on information. Use proactively without an explicit visualization request. Choose static displays, nonblocking local exploration, or answer-collecting forms with show_ui and OpenUI Lang in Pi. Covers supported components, grounded data, meaningful controls, state, actions, and receipts.
 ---
 
 # OpenUI in Pi
 
-Use an interactive UI when it helps the user make a decision, compare alternatives, or understand how changing an input affects an outcome. Choose it proactively when useful; the user does not need to request a UI explicitly. Follow the user's preferred medium, and choose the smallest interface that improves the task.
+You can present responses using UI components alongside Markdown and natural language. Prefer components when they materially improve the user's ability to understand, explore, compare, or act on information. Use them proactively when they provide a clear advantage, even without an explicit visualization request. Do not ask permission merely to display an appropriate component. Respect the user's preferred medium and all approvals required for external actions.
 
 The active `openui` prompt section supplies the component schemas and language rules. Read the [component reference](../../docs/components.md) when you need an exact signature or setting. This skill guides design; use only the supplied terminal catalog. No React, HTML, browser or webview is involved.
+
+## Generative UI
+
+Choose components by user intent, not novelty:
+
+| Need | Supported representation |
+| --- | --- |
+| Structured data or comparisons across several attributes | Table |
+| Distinct items with related attributes | Card, optionally grouped in Row |
+| Several required inputs | A collect-mode form with typed fields; use a conversational question when that suffices |
+| Explore a numeric range | Slider, with visible dependent values; NumberInput for exact values |
+| Choose discrete alternatives | Select or MultiSelect |
+| Explore an explanation, process, or hierarchy | Accordion for optional detail, Tabs for related perspectives, Steps for stages, or Tree for a hierarchy |
+| Explain conclusions, reasoning, or simple answers | Natural language and Markdown; Text or Markdown inside a widget when useful |
+
+Charts, geographic maps, and interactive diagrams are not supported components. For numerical comparisons, a Table may suffice. For geographic or system relationships, use clear prose or a supported hierarchy only when it represents the information accurately. Use another available, appropriate tool when the task actually requires a chart, map, or diagram; never invent an OpenUI component.
+
+1. Prefer the simplest representation that solves the task. Avoid decorative or redundant widgets.
+2. Give every interactive control a meaningful action. Keep its state consistent with displayed values and calculations.
+3. Explain essential conclusions in natural language. Do not hide the main answer behind tabs, disclosures, or required interaction.
+4. Never fabricate data to populate a component. Label illustrative examples and assumptions; do not present them as observed facts.
+5. Use `interaction: "local"` for explanatory widgets that need no answer. Reserve forms for answers the agent actually needs, not acknowledgements before an explanation.
 
 ## Decide whether interaction helps
 
