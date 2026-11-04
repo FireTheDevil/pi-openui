@@ -10,13 +10,17 @@ const result = await tools.show_ui({
 text(result);
 ```
 
+`summary.fields` contains field names, not labels or `$variables`. Unknown names are ignored. Without it, the receipt follows document order and omits Tabs, Steps, and Accordion navigation. Booleans render as Yes/No, and rich selections use their labels.
+
+Receipts follow Pi's active theme, wrap on narrow terminals, and show a compact selection of fields. Expand tool details with Ctrl+O by default to inspect all receipt fields and the full structured result. The `content` and `structuredContent` retain the complete outcome, including values, state, and context. Display metadata is separate in `details.openuiReceipt`.
+
 The receipt uses the form's labels and rich option labels, not internal variable names. Field selection only changes the display. Numbers, booleans, arrays, hidden fields and internal state remain in the machine result. Cancellation and errors have their own receipt status. “Submitted” means input was received; it does not assert that any requested work has been executed.
 
 Answer-collecting forms open inline by default, with F2 available to expand them. A display-only inline document has no submission to summarize: its actual content remains in the transcript and the tool returns `status: "displayed"`. A local interactive widget returns `status: "mounted"` plus its ID and renders separately in the transcript. Mounting is not a submission or final choice; edits, blur and dismissal never create a receipt containing selected values. `summary.title` labels the widget and `summary.fields` does not export local state. See [local interaction](local-interaction.md) and [inline presentation](inline-ui.md). The screenshots below show the receipt feature's original v0.5.0 verification; they are not captures of the newer inline interaction layout.
 
 ## Native code mode
 
-The receipt appears as a separate transcript entry below the execution block. A completed OpenUI-only script has a compact execution display; expand details to see its original code and output. The receipt itself also expands to show the full structured result. Mixed scripts retain their other calls and output.
+The receipt appears as a separate transcript entry below the execution block. A completed OpenUI-only script has a compact execution display; expand details to see its original code and output. The receipt itself also expands to show the full structured result. Mixed scripts retain their other calls and output. Only an exact known OpenUI result is hidden from the compact display. Cancellation and errors never fabricate submitted values.
 
 ![Separate receipt after native code-mode submission](screenshots/summary-code-mode.png)
 

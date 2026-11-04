@@ -139,7 +139,7 @@ Click controls to focus them; click a list option to select it, a checkbox to to
 
 ## Actions and validation
 
-`@Set`, `@Reset` and ordered `Action([...])` plans update local state without closing. In collect mode, `@ToAssistant(message, context?)` or a legacy action identifier submits current typed values to Pi. Local mode rejects submission and external action paths before mounting, including hidden/conditional buttons; its Action plans may contain only Set/Reset. A plan validates before committing; failed structural updates roll back. See the README for the action contract and native code-mode examples.
+`@Set`, `@Reset` and ordered `Action([...])` plans update local state without closing. In collect mode, `@ToAssistant(message, context?)` or a legacy action identifier submits current typed values to Pi. Local mode rejects submission and external action paths before mounting, including hidden/conditional buttons; its Action plans may contain only Set/Reset. A plan validates before committing; failed structural updates roll back. See the [tool reference](tool-api.md#button-actions) for the action contract and [native code-mode examples](tool-api.md#native-code-mode).
 
 Required fields, explicit `settings.error`, invalid numeric drafts and invalid dates show errors that can be corrected. Invalid document structure, duplicate names, unknown components and malformed source produce diagnostics instead of executing actions. Collect-mode streaming previews remain read-only until complete, with cancellation available. Local widgets mount only from complete, valid documents; Escape returns focus to chat and `/openui-close [id]` dismisses one.
 
