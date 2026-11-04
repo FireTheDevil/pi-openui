@@ -12,6 +12,13 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 
 const skillPath = resolve(root, "skills/openui/SKILL.md");
 
+const referencePaths = ["answer-collection", "local-exploration", "display-and-explanation", "editable-records"]
+  .map(name => resolve(dirname(skillPath), "references", name + ".md"));
+
+const exampleSource = referencePaths.slice(0, 2).map(path => readFileSync(path, "utf8")).join("\n");
+
+const examples = [...exampleSource.matchAll(/```openui\n([\s\S]*?)\n```/g)].map(match => match[1]);
+
 test("Pi discovers the bundled OpenUI skill without diagnostics and exposes it to native code-mode prompts", () => {
   const loaded = loadSkills({
     cwd: root,
@@ -33,8 +40,6 @@ test("Pi discovers the bundled OpenUI skill without diagnostics and exposes it t
 });
 
 test("complete OpenUI examples in the skill parse with the shipped component schemas", () => {
-  const source = readFileSync(skillPath, "utf8");
-  const examples = [...source.matchAll(/```openui\n([\s\S]*?)\n```/g)].map(match => match[1]);
   assert.equal(examples.length, 4);
 
   for (const [index, example] of examples.entries()) {
@@ -59,8 +64,6 @@ test("complete OpenUI examples in the skill parse with the shipped component sch
 });
 
 test("the skill's local example recalculates and resets without a submission path", () => {
-  const skill = readFileSync(skillPath, "utf8");
-  const examples = [...skill.matchAll(/```openui\n([\s\S]*?)\n```/g)].map(match => match[1]);
   const model = new DocumentModel(examples[3]);
   const children = () => childNodes(model.root!);
   const find = (type: string) => children().find(node => node.typeName === type)!;
@@ -76,8 +79,6 @@ test("the skill's local example recalculates and resets without a submission pat
 });
 
 test("the skill's scenario example recomputes locally, resets and submits the derived result", () => {
-  const skill = readFileSync(skillPath, "utf8");
-  const examples = [...skill.matchAll(/```openui\n([\s\S]*?)\n```/g)].map(match => match[1]);
   const model = new DocumentModel(examples[2]);
 
   function nodes(node: RenderedNode): RenderedNode[] { return [node, ...childNodes(node).flatMap(nodes)]; }
@@ -110,13 +111,14 @@ test("the skill's scenario example recomputes locally, resets and submits the de
 });
 
 test("the skill's local component reference resolves inside the shipped documentation", () => {
-  const source = readFileSync(skillPath, "utf8");
-  const links = [...source.matchAll(/\]\((\.\.?\/[^)#]+)(?:#[^)]*)?\)/g)].map(match => match[1]);
+  const links = [skillPath, ...referencePaths].flatMap(path =>
+    [...readFileSync(path, "utf8").matchAll(/\]\(([^)#]+)(?:#[^)]*)?\)/g)]
+      .map(match => resolve(dirname(path), match[1])));
+
   assert.ok(links.length > 0);
 
-  for (const link of links) {
-    const target = resolve(dirname(skillPath), link);
-    assert.ok(target.startsWith(resolve(root, "docs") + "/"));
+  for (const target of links) {
+    assert.ok(target.startsWith(resolve(root, "docs") + "/") || target.startsWith(resolve(dirname(skillPath), "references") + "/"));
     assert.ok(readFileSync(target, "utf8").length > 0);
   }
 });
