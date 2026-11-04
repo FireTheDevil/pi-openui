@@ -13,42 +13,54 @@ function host() {
   const sent: string[] = [];
   let view: OpenUIView;
   let closed = 0;
-  const api = {
+
+  const api: Pick<ExtensionAPI, "registerToolRenderer" | "registerMessageRenderer" | "registerEntryRenderer" | "appendEntry" | "on" | "registerTool" | "registerCommand" | "getActiveTools" | "sendUserMessage"> & { sendMessage(message: Parameters<ExtensionAPI["sendMessage"]>[0] & { content: string }): void } = {
     registerToolRenderer() {},
     registerMessageRenderer() {},
     registerEntryRenderer() {},
     appendEntry() {},
-    on: (name: string, handler: Function) => handlers.set(name, handler),
+    on: (name, handler) => {
+      handlers.set(name, handler);
+
+      return () => { handlers.delete(name); };
+    },
     registerTool: (tool: any) => tools.set(tool.name, tool),
     registerCommand: (name: string, command: any) => commands.set(name, command),
     getActiveTools: () => [...tools.keys()],
     sendUserMessage: (content: string) => sent.push(content),
-    sendMessage: (message: {content:string}) => sent.push(message.content),
-  } as unknown as ExtensionAPI;
-  const ctx = {
+    sendMessage: (message: Parameters<ExtensionAPI["sendMessage"]>[0] & { content: string }) => sent.push(message.content),
+  };
+
+  const ctx: Pick<ExtensionContext, "mode" | "hasUI" | "abort"> & { ui: Pick<ExtensionContext["ui"], "notify" | "custom"> } = {
     mode: "tui", hasUI: true, abort() {},
     ui: {
       notify: (message: string) => { throw new Error(message); },
-      custom: (factory: Function) => new Promise(resolve => {
-        view = factory({ terminal: { rows: 40 }, requestRender() {} }, {}, {}, (result: unknown) => {
+      custom: <T>(factory: Function) => new Promise<T>(resolve => {
+        view = factory({ terminal: { rows: 40 }, requestRender() {} }, {}, {}, (result: T) => {
           closed++; view.dispose(); resolve(result);
         });
       }),
     },
-  } as unknown as ExtensionContext;
-  openuiExtension(api);
+  };
+
+  // SAFETY: The typed fixture implements every registration/message member used by OpenUI; these fullscreen cases never enter the optional local-widget event bus path.
+  openuiExtension(api as ExtensionAPI);
   const lines = () => view.render(100).map(stripTerminalSequences);
+
   const click = (text: string, rowOffset = 0) => {
     const frame = lines();
     const y = frame.findIndex(line => line.includes(text));
     assert.ok(y >= 0, `Missing ${text}: ${frame.join("\n")}`);
     const x = frame[y].indexOf(text) + (rowOffset ? 0 : 1);
+
     const base: Omit<TuiMouseEvent, "type"> = {
       button: "left", x, y: y + rowOffset, screenX: x, screenY: y + rowOffset,
       width: 100, height: frame.length, shift: false, ctrl: false, alt: false,
     };
+
     for (const type of ["press", "release", "click"] as const) view.handleMouse({ ...base, type });
   };
+
   return {
     sent, lines, click, get closed() { return closed; },
     key(data: string) { lines(); view.handleInput(data); },

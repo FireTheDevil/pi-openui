@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { hasUnsafeControls } from "./terminal-text.js";
 import test from "node:test";
 import { CURSOR_MARKER, stripTerminalSequences, visibleWidth } from "@earendil-works/pi-tui";
 import { DEMO_SOURCE } from "../src/demo.js";
@@ -6,17 +7,21 @@ import { DocumentModel } from "../src/model.js";
 import { OpenUIView, safeText, type UIResult } from "../src/view.js";
 
 const keys = { tab: "\t", backTab: "\x1b[Z", enter: "\r", down: "\x1b[B", left: "\x1b[D", escape: "\x1b", pageDown: "\x1b[6~", pageUp: "\x1b[5~" };
+
 function fixture(source = DEMO_SOURCE, initialHeight = 40) {
   const model = new DocumentModel(source);
   const results: UIResult[] = [];
   let height = initialHeight;
   let renders = 0;
+
   const view = new OpenUIView(model, {
     requestRender() { renders++; }, getHeight: () => height,
     onDone: result => results.push(result),
   });
+
   return { model, view, results, setHeight(value: number) { height = value; }, get renders() { return renders; } };
 }
+
 const plain = (view: OpenUIView, width = 80) => view.render(width).map(stripTerminalSequences).join("\n");
 
 test("native selection and input re-evaluate state and submit exactly once", () => {
@@ -75,6 +80,7 @@ test("Escape, Ctrl+C, and disposal cancel or close without duplicate actions", (
     f.view.handleInput(key);
     assert.deepEqual(f.results, [{ status: "cancelled" }]);
   }
+
   const f = fixture();
   f.view.dispose();
   f.view.handleInput(keys.escape);
@@ -85,6 +91,7 @@ test("Escape, Ctrl+C, and disposal cancel or close without duplicate actions", (
 
 test("streaming prefixes render safely and cannot edit or submit until complete", () => {
   const f = fixture("");
+
   for (let end = 1; end < DEMO_SOURCE.length; end += 7) {
     f.model.update(DEMO_SOURCE.slice(0, end), true);
     assert.doesNotThrow(() => f.view.refresh());
@@ -93,6 +100,7 @@ test("streaming prefixes render safely and cannot edit or submit until complete"
     f.view.handleInput(keys.enter);
     f.view.handleInput("unwanted");
   }
+
   assert.equal(f.results.length, 0);
   f.model.update(DEMO_SOURCE, false);
   f.view.refresh();
@@ -118,7 +126,9 @@ test("invalid final documents show diagnostics and cannot submit previous conten
 test("Unicode text, tables, and controls fit resized terminal width and height", () => {
   const f = fixture(`$note = "界🙂é";
 root = Stack([Text("Wide 界界 and emoji 🙂 plus é"), Input("note", "界Label", $note), Table(["Name", "Value"], [["界🙂", "é content that wraps"], ["Other", 123]]), Button("Submit", "submit")]);`);
+
   assert.equal(f.model.valid, true, f.model.diagnostics.join("; "));
+
   for (const width of [80, 40, 16, 8, 3, 2, 1, 0, 80]) {
     for (const height of [40, 8, 3, 2, 1, 25]) {
       f.setHeight(height);
@@ -127,6 +137,7 @@ root = Stack([Text("Wide 界界 and emoji 🙂 plus é"), Input("note", "界Lab
       assert.ok(lines.every(line => visibleWidth(line) <= width), `${width}x${height}: over-wide line`);
     }
   }
+
   f.setHeight(40);
   const narrow = plain(f.view, 15);
   assert.match(narrow, /Name:/);
@@ -137,8 +148,10 @@ test("PageUp and PageDown expose long read-only content without focusable contro
   const source = `root = Stack([${Array.from({ length: 30 }, (_, i) => `Text("Row ${i}")`).join(",")}])`;
   const f = fixture(source, 8);
   assert.match(plain(f.view), /Row 0/);
+
   for (let n = 0; n < 20; n++) f.view.handleInput(keys.pageDown);
   assert.match(plain(f.view), /Row 29/);
+
   for (let n = 0; n < 20; n++) f.view.handleInput(keys.pageUp);
   assert.match(plain(f.view), /Row 0/);
 });
@@ -146,7 +159,7 @@ test("PageUp and PageDown expose long read-only content without focusable contro
 test("untrusted text cannot emit terminal controls or inject Pi cursor markers", () => {
   const hostile = "hello\x1b[2J\x1b]52;c;ZXZpbA==\x07\x1b_pi:c\x07\x00\x9bworld";
   const cleaned = safeText(hostile);
-  assert.equal(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/.test(cleaned), false);
+  assert.equal(hasUnsafeControls(cleaned), false);
   assert.match(cleaned, /hello/);
   assert.match(cleaned, /world/);
   const f = fixture(`root = Stack([Text(${JSON.stringify(hostile)}), Table(["Column"], [[${JSON.stringify(hostile)}]])])`);

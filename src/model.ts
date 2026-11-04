@@ -1,87 +1,163 @@
+import type { RenderedNode } from "./catalog.js";
 import {
   createParser, createStore, createStreamingParser,
   evaluate, evaluateRoot, isReactiveAssign, resolveStateField, split, tokenize,
-  type ActionPlan, type ActionStep, type ASTNode, type ElementNode, type EvaluationContext, type OpenUIError, type ParseResult,
+  type ActionPlan, type ActionStep, type ASTNode, type EvaluationContext, type OpenUIError, type ParseResult,
 } from "@openuidev/lang-core";
+import { z } from "zod";
+import { predicateParseContext } from "./predicate-validation.js";
+import { isActionAST } from "./action-ast.js";
 import {
   componentSpecs, library, limits, isElement, isField, childNodes, optionItems, fieldOptions, valueSchemaFor,
   type FieldValue,
 } from "./catalog.js";
-export { library, limits, systemPrompt, modelPrompt, isElement, isField, childNodes, optionItems, fieldOptions, type FieldValue } from "./catalog.js";
+
+export { library, limits, systemPrompt, modelPrompt, isElement, isField, childNodes, optionItems, fieldOptions, type FieldValue, type RenderedNode } from "./catalog.js";
+
 export interface ActionSubmission {
   status: "submitted";
   action: string;
   message?: string;
   context?: unknown;
-  state: Record<string, unknown>;
+  state: ReturnType<ReturnType<typeof createStore>["getSnapshot"]>;
   values: Record<string, FieldValue>;
 }
+
 export type ActionOutcome = { status: "updated" } | ActionSubmission | { status: "error"; error: string };
 
 // evaluateElementProps copies element metadata while evaluating props. Retain the
 // parser's action AST so a later step sees state changed by an earlier step.
 const actionSource = Symbol("openui.actionSource");
+
 const actionSourceKey = "__piOpenUIActionSource";
-type SourceButton = ElementNode & { [actionSource]?: unknown };
-const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
-const isPlan = (value: unknown): value is ActionPlan => isRecord(value) && Array.isArray(value.steps);
-const isAST = (value: unknown): value is ASTNode => isRecord(value) && typeof value.k === "string";
+
+const actionObjectSchema = z.object({});
+
+const actionTextSchema = z.string();
+
+const sourceContainerSchema = z.custom<object>(
+  value => actionObjectSchema.safeParse(value, predicateParseContext).success || Array.isArray(value),
+);
+
+const isSourceContainer = (value: RenderedNode["props"][string]): value is object =>
+  sourceContainerSchema.safeParse(value, predicateParseContext).success;
+
+const actionDataScalarSchema = z.union([z.null(), z.boolean(), z.number().finite(), z.string().max(limits.text)]);
+
+const tableCellSchemas = {
+  string: z.string(),
+  number: z.union([z.number(), z.nan(), z.literal(Infinity), z.literal(-Infinity)]),
+  boolean: z.boolean(),
+};
+
+const planHeaderSchema = z.custom<{ steps: unknown[] }>(value => isRecord(value) && Array.isArray(value.steps));
+
+type LocalActionExpression = Extract<ASTNode, { k: "Comp" }> & { name: "Set" | "Reset" | "ToAssistant" };
+
+interface LocalActionPlan extends ActionPlan {
+  steps: Array<Extract<ActionStep, { type: "set" | "reset" | "continue_conversation" }>>;
+}
+
+type CheckedActionStep = Extract<ActionStep, { type: "set" | "reset" }> | {
+  type: "continue_conversation";
+  message?: ReturnType<typeof evaluate>;
+  context?: Extract<ActionStep, { type: "continue_conversation" }>["context"];
+};
+
+const isRecord = (value: ReturnType<typeof evaluate>): value is NonNullable<EvaluationContext["extraScope"]> => actionObjectSchema.safeParse(value, predicateParseContext).success;
+
+const isPlan = (value: ReturnType<typeof evaluate>): value is z.infer<typeof planHeaderSchema> => planHeaderSchema.safeParse(value, predicateParseContext).success;
+
+const isTextValue = (value: ReturnType<typeof evaluate>): value is string => actionTextSchema.safeParse(value, predicateParseContext).success;
+
+function isLocalActionExpression(value: Extract<ASTNode, { k: "Comp" }>): value is LocalActionExpression {
+  return value.name === "Set" || value.name === "Reset" || value.name === "ToAssistant";
+}
+
+const buttonSourceSchema = z.object({ k: z.literal("Comp"), name: z.literal("Button"), mappedProps: z.looseObject({}).optional() });
+
+const isButtonSource = (value: RenderedNode["props"][string]): value is z.infer<typeof buttonSourceSchema> => buttonSourceSchema.safeParse(value, predicateParseContext).success;
+
 function validDate(value: string): boolean {
   const parts = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+
   if (!parts) return false;
   const [, yearText, monthText, dayText] = parts;
   const year = Number(yearText), month = Number(monthText), day = Number(dayText);
+
   if (year < 1 || month < 1 || month > 12 || day < 1) return false;
   const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+
   return day <= [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][month - 1];
 }
+
 // lang-core deliberately recovers incomplete syntax and skips non-assignment lines.
 // Check the document envelope so completed tool calls cannot silently lose bad lines.
 // Expression parsing and all evaluation still belong to lang-core.
 function checkEnvelope(source: string, streaming: boolean): string[] {
   const stack: string[] = [];
-  const closing: Record<string, string> = { ")": "(", "]": "[", "}": "{" };
+  const closing = new Map([[")", "("], ["]", "["], ["}", "{"]]);
   const statements: string[] = [];
   let quote = "";
   let escaped = false;
   let top = "";
+
   for (const char of source) {
     if (quote) {
       if (escaped) escaped = false;
       else if (char === "\\") escaped = true;
-      else if (char === quote) { quote = ""; if (!stack.length) top += '"'; }
+      else if (char === quote) { quote = "";
+
+ if (!stack.length) top += '"'; }
+
       continue;
     }
-    if (char === '"' || char === "'") { quote = char; if (!stack.length) top += '"'; continue; }
+
+    if (char === '"' || char === "'") { quote = char;
+
+ if (!stack.length) top += '"'; continue; }
+
     if ('([{'.includes(char)) {
       if (!stack.length) top += char;
       stack.push(char);
+
       if (stack.length > limits.depth * 3) return ["Document exceeds the syntax nesting limit."];
       continue;
     }
-    if (char in closing) {
-      if (stack.pop() !== closing[char]) return ["Document has mismatched closing brackets."];
+
+    const opening = closing.get(char);
+
+    if (opening !== undefined) {
+      if (stack.pop() !== opening) return ["Document has mismatched closing brackets."];
+
       if (!stack.length) top += char;
       continue;
     }
+
     if (!stack.length) {
       if (char === "\n") { if (top.trim()) statements.push(top.trim()); top = ""; }
       else top += char;
     }
   }
+
   if (streaming) return [];
+
   if (quote || stack.length) return ["Document is incomplete; close all strings and brackets."];
+
   if (top.trim()) statements.push(top.trim());
+
   for (const statement of statements) {
     if (!/^\$?[A-Za-z_][A-Za-z0-9_]*\s*=\s*(?:[A-Za-z_$@\d!\-([{"'])/.test(statement)) return ["Every statement must be an identifier = expression on its own line."];
+
     if (/[)\]}"']\s*[A-Za-z_$@]/.test(statement)) return ["Unexpected text after an expression."];
   }
+
   return [];
 }
 
 /** A single UI's parser, state store and evaluated tree. No terminal or host dependencies. */
 export class DocumentModel {
-  root: ElementNode | null = null;
+  root: RenderedNode | null = null;
   diagnostics: string[] = [];
   streaming = false;
   valid = false;
@@ -103,7 +179,7 @@ export class DocumentModel {
   constructor(source?: string) { if (source !== undefined) this.update(source); }
 
   /** Includes lang-core $variables and unbound form fields, without losing their distinct names. */
-  get state(): Record<string, unknown> { return { ...this.store.getSnapshot(), ...Object.fromEntries(this.fields) }; }
+  get state(): ReturnType<ReturnType<typeof createStore>["getSnapshot"]> { return { ...this.store.getSnapshot(), ...Object.fromEntries(this.fields) }; }
 
   /** Full accumulated source, never a delta. Partial parses are for preview only. */
   update(source: string, streaming = false): void {
@@ -114,60 +190,85 @@ export class DocumentModel {
     this.declaredState.clear();
     this.dynamicActionSources.clear();
     this.parseDiagnostics = [];
+
     if (source.length > limits.source) this.parseDiagnostics.push(`Document exceeds ${limits.source} characters.`);
     else if (!streaming && !source.trim()) this.parseDiagnostics.push("Document is empty.");
     else {
       try {
         this.parseDiagnostics.push(...checkEnvelope(source, streaming));
-        if (this.parseDiagnostics.length) { this.refresh(); return; }
+
+        if (this.parseDiagnostics.length) { this.refresh();
+
+ return; }
+
         this.result = streaming || wasStreaming ? this.streamParser.set(source, !streaming) : this.parser.parse(source);
         this.declaredState = new Set(split(tokenize(source)).filter(statement => statement.id.startsWith("$")).map(statement => statement.id));
-        const retainSources = (value: unknown): void => {
-          if (!value || typeof value !== "object") return;
-          if (isElement(value) && value.typeName === "Button") (value as SourceButton)[actionSource] = value.props.action;
-          if (isAST(value) && value.k === "Comp" && value.name === "Button" && value.mappedProps) {
+
+        const retainSources = (value: RenderedNode["props"][string]): void => {
+          if (!isSourceContainer(value)) return;
+
+          if (isElement(value) && value.typeName === "Button") Object.assign(value, { [actionSource]: value.props.action });
+
+          if (isButtonSource(value) && value.mappedProps) {
             // Runtime-selected components are reconstructed by lang-core. Carry
             // an opaque source key through that reconstruction as a literal prop.
             const key = String(this.dynamicActionSources.size);
             this.dynamicActionSources.set(key, value.mappedProps.action);
             value.mappedProps[actionSourceKey] = { k: "Str", v: key };
           }
+
           for (const child of Object.values(value)) retainSources(child);
         };
+
         retainSources(this.result.root);
         const { meta } = this.result;
         this.parseDiagnostics.push(...meta.errors.map((error) => error.message));
+
         if (!streaming && meta.incomplete) this.parseDiagnostics.push("Document is incomplete; close all strings and brackets.");
+
         if (!streaming && meta.unresolved.length) this.parseDiagnostics.push(`Unresolved references: ${meta.unresolved.join(", ")}`);
+
         if (!streaming && !/\broot\s*=/.test(source)) this.parseDiagnostics.push("Document must declare root.");
+
         if (this.result.queryStatements.length || this.result.mutationStatements.length) this.parseDiagnostics.push("Query and Mutation are not supported.");
         this.store.initialize(this.result.stateDeclarations, {});
       } catch (error) {
         this.parseDiagnostics.push(`Unable to parse document: ${error instanceof Error ? error.message : String(error)}`);
       }
     }
+
     this.refresh();
   }
 
-  fieldValue(node: ElementNode): FieldValue {
+  fieldValue(node: RenderedNode): FieldValue {
     const value = this.field(node).value;
-    if (valueSchemaFor(node)?.safeParse(value).success) return value as FieldValue;
+
+    if (valueSchemaFor(node)?.safeParse(value).success) {
+      // SAFETY: Every registered value schema produces a FieldValue, and this branch validated the current value.
+      return value as FieldValue;
+    }
+
     return this.emptyFieldValue(node);
   }
 
-  setField(node: ElementNode, value: FieldValue): void {
+  setField(node: RenderedNode, value: FieldValue): void {
     if (this.disposed || this.streaming || !this.valid || !isField(node) || this.isDisabled(node) || !this.nodePath(node)) return;
+
     if (!valueSchemaFor(node)?.safeParse(value).success) return;
     const options = optionItems(node);
+
     if (options.length) {
       const next: unknown[] = Array.isArray(value) ? value : [value];
+
       if (new Set(next).size !== next.length || next.some(item => !options.some(option => option.value === item))) return;
       const previous = this.fieldValue(node);
       const before: unknown[] = Array.isArray(previous) ? previous : [previous];
+
       if (Array.isArray(value)) {
         if (options.some(option => option.disabled && before.includes(option.value) !== next.includes(option.value))) return;
       } else if (value !== previous && options.some(option => option.disabled && option.value === value)) return;
     }
+
     // Keep malformed bindings/dependent option changes from wedging an editable
     // form. Ordinary field errors (required/range/date/manual) are still editable.
     const originalStore = this.store;
@@ -176,10 +277,15 @@ export class DocumentModel {
     stagedStore.initialize(originalStore.getSnapshot(), {});
     this.store = stagedStore;
     this.fields = new Map(originalFields);
+
     try {
       this.field(node).setValue(structuredClone(value));
       this.refresh();
-      if (!this.valid) { this.fields = originalFields; return; }
+
+      if (!this.valid) { this.fields = originalFields;
+
+ return; }
+
       for (const [key, next] of Object.entries(stagedStore.getSnapshot())) {
         if (!Object.is(next, originalStore.get(key))) originalStore.set(key, next);
       }
@@ -194,7 +300,9 @@ export class DocumentModel {
 
   setValue(field: string, value: FieldValue): void {
     if (this.disposed || this.streaming || !this.valid || !/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(field)) return;
+
     try { this.checkData(value, "State value"); } catch { return; }
+
     this.store.set(field, value);
     this.refresh();
   }
@@ -202,90 +310,121 @@ export class DocumentModel {
   /** User-correctable errors do not make the document invalid or disable editing. */
   get fieldErrors(): Record<string, string> {
     const errors = new Map<string, string>();
-    const visit = (node: ElementNode): void => {
+
+    const visit = (node: RenderedNode): void => {
       if (isField(node)) {
         const error = this.fieldError(node);
+
         if (error) errors.set(String(node.props.name), error);
       }
+
       for (const child of childNodes(node)) visit(child);
     };
+
     if (this.root) visit(this.root);
+
     return Object.fromEntries(errors);
   }
 
-  fieldError(node: ElementNode): string | undefined {
+  fieldError(node: RenderedNode): string | undefined {
     if (!isField(node)) return;
     const settings = fieldOptions(node);
+
     if (this.isDisabled(node)) return;
+
     if (settings.error?.trim()) return settings.error;
     const value = this.fieldValue(node);
+
     if (settings.required) {
-      if (typeof value === "boolean" && !value) return "Must be checked.";
-      if (typeof value === "string" && !value.trim() || Array.isArray(value) && !value.length) return "Required.";
+      if (value === false) return "Must be checked.";
+
+      if (isTextValue(value) && !value.trim() || Array.isArray(value) && !value.length) return "Required.";
     }
+
     if (node.typeName === "NumberInput" || node.typeName === "Slider") {
-      const min = node.typeName === "Slider" ? node.props.min as number : settings.min;
-      const max = node.typeName === "Slider" ? node.props.max as number : settings.max;
+      const min = node.typeName === "Slider" ? componentSpecs.Slider.shape.min.parse(node.props.min) : settings.min;
+      const max = node.typeName === "Slider" ? componentSpecs.Slider.shape.max.parse(node.props.max) : settings.max;
+      // SAFETY: fieldValue validates these two numeric controls with their numeric schema or returns zero.
       const numeric = value as number;
+
       if (min !== undefined && numeric < min) return `Must be at least ${min}.`;
+
       if (max !== undefined && numeric > max) return `Must be at most ${max}.`;
     }
+
     if (node.typeName === "DatePicker" && value !== "") {
-      if (typeof value !== "string" || !validDate(value)) return "Use a valid YYYY-MM-DD date.";
+      if (!isTextValue(value) || !validDate(value)) return "Use a valid YYYY-MM-DD date.";
+
       if (settings.minDate && value < settings.minDate) return `Date must be on or after ${settings.minDate}.`;
+
       if (settings.maxDate && value > settings.maxDate) return `Date must be on or before ${settings.maxDate}.`;
     }
   }
 
   /** Disabled page navigation also disables its pages, including hidden pages. */
-  isDisabled(node: ElementNode): boolean {
+  isDisabled(node: RenderedNode): boolean {
     if (fieldOptions(node).disabled) return true;
     const path = this.nodePath(node);
+
     if (!path || !this.root) return false;
-    let ancestor: ElementNode | undefined = this.root;
+    let ancestor: RenderedNode | undefined = this.root;
+
     for (const index of path) {
       if (!ancestor) break;
+
       if ((ancestor.typeName === "Tabs" || ancestor.typeName === "Steps" || ancestor.typeName === "Accordion") && fieldOptions(ancestor).disabled) return true;
       ancestor = childNodes(ancestor)[index];
     }
+
     return false;
   }
 
   private submissionError(): string | undefined {
     const errors = Object.entries(this.fieldErrors);
+
     return errors.length ? `Cannot submit: ${errors.map(([field, error]) => `${field}: ${error}`).join("; ")}` : undefined;
   }
 
-  private emptyFieldValue(node: ElementNode): FieldValue {
+  private emptyFieldValue(node: RenderedNode): FieldValue {
     if (node.typeName === "Checkbox" || node.typeName === "Toggle") return false;
+
     if (node.typeName === "NumberInput" || node.typeName === "Slider") return 0;
+
     if (node.typeName === "MultiSelect" || node.typeName === "EditableTable") return [];
+
     if (node.typeName === "Accordion") return false;
+
     return "";
   }
 
   /** Execute a complete button action transaction; the view decides when to close. */
-  activate(node: ElementNode): ActionOutcome {
+  activate(node: RenderedNode): ActionOutcome {
     const fail = (error: string): ActionOutcome => ({ status: "error", error });
+
     if (this.disposed || this.streaming || !this.valid || !this.result) return fail("Actions require a complete, valid document.");
     const path = this.nodePath(node);
+
     if (!path || node.typeName !== "Button") return fail("This button is no longer part of the current UI.");
+
     if (this.isDisabled(node)) return fail("This button is disabled.");
     const initialAction = node.props.action;
-    if (typeof initialAction === "string") {
+
+    if (isTextValue(initialAction)) {
       const error = this.submissionError();
+
       return error ? fail(error) : { status: "submitted", action: initialAction, state: this.state, values: this.formValues };
     }
 
     const originalStore = this.store;
     let stagedStore: ReturnType<typeof createStore> | undefined;
+
     try {
       // Resolve action-level conditionals once, then freeze the step sequence.
       // Each step's expressions are still evaluated against the current staged state.
-      const source = (node as SourceButton)[actionSource] ?? this.dynamicActionSources.get(String(node.props[actionSourceKey]));
+      const source = (actionSource in node ? node[actionSource] : undefined) ?? this.dynamicActionSources.get(String(node.props[actionSourceKey]));
       // @Each substitutes its local variables before evaluating a Button. The
       // template's unsubstituted Ref nodes must not be evaluated outside that scope.
-      const hasRefs = (value: unknown): boolean => Array.isArray(value) ? value.some(hasRefs) : isRecord(value) && (value.k === "Ref" || Object.values(value).some(hasRefs));
+      const hasRefs = (value: RenderedNode["props"][string]): boolean => Array.isArray(value) ? value.some(hasRefs) : isRecord(value) && (value.k === "Ref" || Object.values(value).some(hasRefs));
       const expressions = source === undefined || hasRefs(source) ? undefined : this.actionExpressions(source);
       const initial = expressions ? expressions.flatMap(expression => this.evaluatePlan(expression).steps) : this.requirePlan(initialAction).steps;
       this.checkSteps(initial);
@@ -295,10 +434,13 @@ export class DocumentModel {
       this.store = stagedStore;
       const changes = new Map<string, boolean>();
       let submission: { message: string; context?: unknown } | undefined;
+
       for (let index = 0; index < initial.length; index++) {
         let step = initial[index];
+
         if (expressions) {
           const current = this.evaluatePlan(expressions[index]).steps;
+
           if (current.length !== 1 || current[0].type !== step.type) throw new Error("Action step changed while executing.");
           step = current[0];
         } else if (step.type === "continue_conversation" && changes.size) {
@@ -307,133 +449,187 @@ export class DocumentModel {
           const evaluated = evaluateRoot(this.result, { ctx: this.context, library, store: this.store });
           const currentNode = this.atPath(evaluated, path);
           const current = this.requirePlan(currentNode?.props.action).steps;
+
           if (currentNode?.typeName !== "Button" || current.length !== initial.length ||
             JSON.stringify(current.slice(0, index)) !== JSON.stringify(initial.slice(0, index))) {
             throw new Error("The button changed during its action; split local changes and submission into separate buttons.");
           }
+
           this.checkSteps(current);
           step = current[index];
         }
-        switch (step.type) {
+
+        const dispatched = step;
+
+        switch (dispatched.type) {
           case "set": {
-            const value = evaluate(step.valueAST, this.context);
+            const value = evaluate(dispatched.valueAST, this.context);
             this.checkData(value, "State value");
-            this.store.set(step.target, value);
-            changes.set(step.target, false);
+            this.store.set(dispatched.target, value);
+            changes.set(dispatched.target, false);
             break;
           }
+
           case "reset":
-            for (const target of step.targets) {
+            for (const target of dispatched.targets) {
               this.store.set(target, this.result.stateDeclarations[target], { pristine: true });
               changes.set(target, true);
             }
+
             break;
           case "continue_conversation":
-            if (typeof step.message !== "string" || step.message.length > limits.text) throw new Error("Assistant message must be a string of at most 4000 characters.");
-            if (step.context !== undefined) this.checkData(step.context, "Action context");
-            submission = { message: step.message, ...(step.context === undefined ? {} : { context: step.context }) };
+            if (!isTextValue(dispatched.message) || dispatched.message.length > limits.text) throw new Error("Assistant message must be a string of at most 4000 characters.");
+
+            if (dispatched.context !== undefined) this.checkData(dispatched.context, "Action context");
+            submission = { message: dispatched.message };
+
+            if (dispatched.context !== undefined) submission.context = dispatched.context;
             break;
           default: throw new Error(`Unsupported action: ${step.type}`);
         }
       }
+
       this.refresh();
+
       if (!this.valid) throw new Error(`Action would make the UI invalid: ${this.diagnostics.join("; ")}`);
       const submissionError = submission ? this.submissionError() : undefined;
+
       if (submissionError) throw new Error(submissionError);
       const snapshot = this.store.getSnapshot();
       this.store = originalStore;
+
       for (const [target, pristine] of changes) this.store.set(target, snapshot[target], { pristine });
       this.refresh();
+
       return submission ? { status: "submitted", action: "continue_conversation", ...submission, state: this.state, values: this.formValues } : { status: "updated" };
     } catch (error) {
       this.store = originalStore;
       this.refresh();
+
       return fail(error instanceof Error ? error.message : String(error));
     } finally {
       stagedStore?.dispose();
     }
   }
 
-  private nodePath(target: ElementNode): number[] | undefined {
-    const find = (node: ElementNode, path: number[]): number[] | undefined => {
+  private nodePath(target: RenderedNode): number[] | undefined {
+    const find = (node: RenderedNode, path: number[]): number[] | undefined => {
       if (node === target) return path;
+
       for (const [index, child] of childNodes(node).entries()) {
         const found = find(child, [...path, index]);
+
         if (found) return found;
       }
     };
+
     return this.root ? find(this.root, []) : undefined;
   }
 
-  private atPath(root: ElementNode | null, path: number[]): ElementNode | undefined {
-    let node: ElementNode | undefined = root ?? undefined;
+  private atPath(root: RenderedNode | null, path: number[]): RenderedNode | undefined {
+    let node: RenderedNode | undefined = root ?? undefined;
+
     for (const index of path) node = node ? childNodes(node)[index] : undefined;
+
     return node;
   }
 
-  private actionExpressions(value: unknown, depth = 0): ASTNode[] {
-    if (!isAST(value) || depth > limits.actionSteps) throw new Error("Use native @Set, @Reset, @ToAssistant or Action([...]) expressions.");
+  private actionExpressions(value: RenderedNode["props"][string], depth = 0): LocalActionExpression[] {
+    if (!isActionAST(value) || depth > limits.actionSteps) throw new Error("Use native @Set, @Reset, @ToAssistant or Action([...]) expressions.");
+
     if (value.k === "Ternary") return this.actionExpressions(evaluate(value.cond, this.context) ? value.then : value.else, depth + 1);
+
     if (value.k !== "Comp") throw new Error("Use native @Set, @Reset, @ToAssistant or Action([...]) expressions.");
+
     if (value.name === "Action") {
       if (value.args.length !== 1 || value.args[0].k !== "Arr") throw new Error("Action requires an array of action expressions.");
       const expressions = value.args[0].els.flatMap(child => this.actionExpressions(child, depth + 1));
+
       if (expressions.length > limits.actionSteps) throw new Error(`Actions support at most ${limits.actionSteps} steps.`);
+
       return expressions;
     }
-    if (!["Set", "Reset", "ToAssistant"].includes(value.name)) throw new Error(`Unsupported action: @${value.name}. Use @Set, @Reset or @ToAssistant.`);
+
+    if (!isLocalActionExpression(value)) throw new Error(`Unsupported action: @${value.name}. Use @Set, @Reset or @ToAssistant.`);
+
     if (value.name === "Set" && (value.args.length !== 2 || value.args[0].k !== "StateRef")) throw new Error("@Set requires a declared $variable and a value.");
+
     if (value.name === "Reset" && (!value.args.length || value.args.some(arg => arg.k !== "StateRef"))) throw new Error("@Reset requires one or more declared $variables.");
+
     if (value.name === "ToAssistant" && (value.args.length < 1 || value.args.length > 2)) throw new Error("@ToAssistant requires a message and optional context.");
+
     return [value];
   }
 
-  private requirePlan(value: unknown): ActionPlan {
+  private requirePlan(value: ReturnType<typeof evaluate>): z.infer<typeof planHeaderSchema> {
     if (!isPlan(value)) throw new Error("Button requires an action identifier or native action expression.");
+
     return value;
   }
 
-  private evaluatePlan(expression: ASTNode): ActionPlan { return this.requirePlan(evaluate(expression, this.context)); }
+  private evaluatePlan(expression: LocalActionExpression): LocalActionPlan {
+    // SAFETY: lang-core builds Set/Reset fields from complete AST nodes and stringifies ToAssistant messages.
+    // The checked call name permits only those three native one-step plans, including empty invalid calls.
+    return this.requirePlan(evaluate(expression, this.context)) as LocalActionPlan;
+  }
 
-  private checkSteps(steps: ActionStep[]): void {
+  private checkSteps(steps: z.infer<typeof planHeaderSchema>["steps"]): asserts steps is CheckedActionStep[] {
     if (!steps.length || steps.length > limits.actionSteps) throw new Error(`Action must contain 1–${limits.actionSteps} supported steps.`);
+
     for (const [index, step] of steps.entries()) {
       if (!isRecord(step)) throw new Error("Invalid action step.");
+
       if (step.type === "set" || step.type === "reset") {
         const targets = step.type === "set" ? [step.target] : step.targets;
+
         if (!Array.isArray(targets) || !targets.length || targets.some(target => !this.declaredState.has(target))) throw new Error("Action targets must be explicitly declared $variables.");
-        if (step.type === "set" && !isAST(step.valueAST)) throw new Error("@Set requires a value expression.");
+
+        if (step.type === "set" && !isActionAST(step.valueAST)) throw new Error("@Set requires a value expression.");
       } else if (step.type === "continue_conversation") {
         if (index !== steps.length - 1) throw new Error("@ToAssistant must be the last and only submission step.");
       } else throw new Error(`Unsupported action: ${step.type}. Use @Set, @Reset or @ToAssistant.`);
     }
   }
 
-  private checkData(value: unknown, label: string): void {
+  private checkData(value: Extract<ActionStep, { type: "continue_conversation" }>["context"], label: string): void {
     let count = 0;
-    const visit = (item: unknown, depth: number): void => {
+
+    const visit = (item: Extract<ActionStep, { type: "continue_conversation" }>["context"], depth: number): void => {
       if (++count > 4096 || depth > limits.depth) throw new Error(`${label} exceeds the size or nesting limit.`);
-      if (item === null || typeof item === "boolean") return;
-      if (typeof item === "number" && Number.isFinite(item)) return;
-      if (typeof item === "string" && item.length <= limits.text) return;
-      if (Array.isArray(item)) { for (const child of item) visit(child, depth + 1); return; }
-      if (isRecord(item)) { for (const child of Object.values(item)) visit(child, depth + 1); return; }
+
+      if (actionDataScalarSchema.safeParse(item, predicateParseContext).success) return;
+
+      if (Array.isArray(item)) { for (const child of item) visit(child, depth + 1);
+
+ return; }
+
+      if (isRecord(item)) { for (const child of Object.values(item)) visit(child, depth + 1);
+
+ return; }
+
       throw new Error(`${label} must contain finite JSON values and strings of at most 4000 characters.`);
     };
+
     visit(value, 0);
+
     if (JSON.stringify(value).length > limits.source) throw new Error(`${label} exceeds ${limits.source} characters.`);
   }
 
   get formValues(): Record<string, FieldValue> {
     const values = new Map<string, FieldValue>();
-    const visit = (node: ElementNode) => {
+
+    const visit = (node: RenderedNode) => {
       if (isField(node)) {
         const value = this.fieldValue(node);
+        // SAFETY: refresh publishes fields only after their required name passes the component string-name schema.
         values.set(node.props.name as string, structuredClone(value));
       }
+
       for (const child of childNodes(node)) visit(child);
     };
+
     if (this.root) visit(this.root);
+
     return Object.fromEntries(values);
   }
 
@@ -449,7 +645,7 @@ export class DocumentModel {
     this.streaming = false;
   }
 
-  private field(node: ElementNode) {
+  private field(node: RenderedNode) {
     return resolveStateField<FieldValue>(String(node.props.name), node.props.value, this.store, this.context,
       (key) => this.fields.get(key), (key, value) => { this.fields.set(key, value); });
   }
@@ -458,100 +654,160 @@ export class DocumentModel {
     this.root = null;
     this.diagnostics = [...this.parseDiagnostics];
     this.valid = false;
+
     if (!this.result) return;
+
     try {
       const errors: OpenUIError[] = [];
       const evaluated = evaluateRoot(this.result, { ctx: this.context, library, store: this.store, errors });
       this.diagnostics.push(...errors.map((error) => error.message));
+
       if (evaluated) {
         let count = 0;
         const names = new Set<string>();
-        const validate = (node: ElementNode, depth: number): ElementNode | null => {
+
+        const validate = (node: RenderedNode, depth: number): RenderedNode | null => {
+          if (!isElement(node)) {
+            this.diagnostics.push("Invalid component element header.");
+
+            return null;
+          }
+
           if (++count > limits.nodes || depth > limits.depth) throw new Error("Document exceeds the component count or nesting limit.");
+          // SAFETY: Object.hasOwn gates this registry lookup to a catalog-owned schema; no node metadata is replaced.
           const schema = Object.hasOwn(componentSpecs, node.typeName) ? componentSpecs[node.typeName as keyof typeof componentSpecs] : undefined;
-          if (!schema) { this.diagnostics.push(`Unsupported component: ${node.typeName}`); return null; }
+
+          if (!schema) { this.diagnostics.push(`Unsupported component: ${node.typeName}`);
+
+ return null; }
+
           const props = { ...node.props };
+
           // OpenUI uses null to skip an optional positional argument before a
           // later one, such as Input(..., null, {required: true}).
           for (const [key, property] of Object.entries(schema.shape)) {
             if (props[key] === null && property.isOptional()) delete props[key];
           }
+
           // action() describes source/legacy data. lang-core evaluates native
           // action expressions into ActionPlan, which the dispatcher validates.
           if (node.typeName === "Button" && isPlan(props.action)) props.action = "action";
+
           if (isField(node)) {
             if (isReactiveAssign(props.value) && !/^\$[A-Za-z_][A-Za-z0-9_]*$/.test(props.value.target)) throw new Error("Invalid state binding.");
             const resolved = this.field(node).value;
             props.value = resolved ?? (this.streaming ? this.emptyFieldValue(node) : resolved);
+
             if (names.has(String(props.name))) this.diagnostics.push(`Duplicate field name: ${props.name}`);
             names.add(String(props.name));
           }
+
           if (node.typeName === "Tree") {
             let treeCount = 0;
-            const boundTree = (items: unknown, treeDepth: number): void => {
+
+            const boundTree = (items: RenderedNode["props"][string], treeDepth: number): void => {
               if (!Array.isArray(items)) return;
+
               for (const item of items) {
                 if (++treeCount > limits.treeNodes || treeDepth > limits.treeDepth) throw new Error(`Tree exceeds ${limits.treeNodes} nodes or depth ${limits.treeDepth}.`);
+
                 if (isRecord(item)) boundTree(item.children, treeDepth + 1);
               }
             };
+
             boundTree(props.nodes, 1);
           }
+
           const checked = schema.safeParse(props);
+
           if (!checked.success) {
             this.diagnostics.push(...checked.error.issues.map((issue) => `${node.typeName}.${issue.path.join(".")}: ${issue.message}`));
+
             return null;
           }
+
           if (["Select", "MultiSelect", "Tree", "Tabs", "Steps"].includes(node.typeName)) {
             const options = optionItems(node).map(option => option.value);
+
             if (new Set(options).size !== options.length) this.diagnostics.push(`${node.typeName} option values must be unique.`);
             const selected = Array.isArray(props.value) ? props.value : [props.value];
+
             if (new Set(selected).size !== selected.length) this.diagnostics.push(`${node.typeName} selections must be unique.`);
-            if (!this.streaming && selected.some(value => !options.includes(value as string))) this.diagnostics.push(`${node.typeName} ${props.name} value must be one of its options.`);
+
+            if (!this.streaming && selected.some(value => !options.some(option => option === value || Object.is(option, value)))) this.diagnostics.push(`${node.typeName} ${props.name} value must be one of its options.`);
           }
+
           if (node.typeName === "EditableTable") {
             const columns = componentSpecs.EditableTable.shape.columns.parse(props.columns);
             const rows = componentSpecs.EditableTable.shape.value.parse(props.value);
             const keys = columns.map(column => column.key);
+
             if (new Set(keys).size !== keys.length) this.diagnostics.push("EditableTable column keys must be unique.");
-            if (rows.some(row => Object.keys(row).length !== keys.length || columns.some(column => !Object.hasOwn(row, column.key) || typeof row[column.key] !== column.type))) this.diagnostics.push("EditableTable rows must exactly match column keys and types.");
+
+            if (rows.some(row => Object.keys(row).length !== keys.length || columns.some(column => !Object.hasOwn(row, column.key) || !tableCellSchemas[column.type].safeParse(row[column.key], predicateParseContext).success))) this.diagnostics.push("EditableTable rows must exactly match column keys and types.");
           }
+
+          // SAFETY: This local props snapshot passed the Table schema for string columns and array rows.
           if (node.typeName === "Table" && (props.rows as unknown[][]).some((row) => row.length !== (props.columns as string[]).length)) this.diagnostics.push("Table rows must match the number of columns.");
+
           if (node.typeName === "NumberInput" || node.typeName === "Slider") {
             const settings = fieldOptions(node);
+            // SAFETY: Slider min in this local checked snapshot passed its finite-number schema.
             const min = node.typeName === "Slider" ? props.min as number : settings.min;
+            // SAFETY: Slider max in this local checked snapshot passed its finite-number schema.
             const max = node.typeName === "Slider" ? props.max as number : settings.max;
+
             if (min !== undefined && max !== undefined && min > max) this.diagnostics.push(`${node.typeName} minimum must not exceed maximum.`);
           }
+
           if (node.typeName === "DatePicker") {
             const { minDate, maxDate } = fieldOptions(node);
+
             if (minDate !== undefined && !validDate(minDate) || maxDate !== undefined && !validDate(maxDate)) this.diagnostics.push("DatePicker bounds must be valid YYYY-MM-DD dates.");
+
             if (minDate && maxDate && minDate > maxDate) this.diagnostics.push("DatePicker minDate must not exceed maxDate.");
           }
+
+          // SAFETY: Progress scalars in this local snapshot passed numeric validation; an omitted max uses 100.
           if (node.typeName === "Progress" && (props.value as number) > ((props.max ?? 100) as number)) this.diagnostics.push("Progress value must not exceed max.");
-          const validateChildren = (items: unknown[]): ElementNode[] => {
-            const children: ElementNode[] = [];
+
+          const validateChildren = (items: unknown[]): RenderedNode[] => {
+            const children: RenderedNode[] = [];
+
             for (const child of items) {
               if (child == null && this.streaming) continue;
+
               if (!isElement(child)) { this.diagnostics.push(`${node.typeName} children must be components.`); continue; }
+
               const validChild = validate(child, depth + 1);
+
               if (validChild) children.push(validChild);
             }
+
             return children;
           };
+
           if (["Stack", "Row", "Section", "Card", "Accordion"].includes(node.typeName)) {
+            // SAFETY: The layout schema validated this local children array; its contents remain unvalidated here.
             return { ...node, props: { ...node.props, children: validateChildren(props.children as unknown[]) } };
           }
+
           if (node.typeName === "Tabs" || node.typeName === "Steps") {
+            // SAFETY: The page schema checked string value/label fields and arbitrary child arrays in this local items snapshot.
             const items = (props.items as { value: string; label: string; children: unknown[] }[])
               .map(item => ({ ...item, children: validateChildren(item.children) }));
+
             return { ...node, props: { ...node.props, items } };
           }
+
           return node;
         };
+
         this.root = validate(evaluated, 1);
+
         if (!this.streaming && this.root && this.root.typeName !== "Stack") this.diagnostics.push("root must be a Stack component.");
       }
+
       if (!this.root && !this.streaming) this.diagnostics.push("Document has no renderable root.");
       this.diagnostics = [...new Set(this.diagnostics)].slice(0, 20);
       this.valid = !this.streaming && !!this.root && this.diagnostics.length === 0;

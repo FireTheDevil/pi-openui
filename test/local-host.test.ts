@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Container, Input, Text, TuiAltScreen, stripTerminalSequences, visibleWidth, type Component, type Terminal } from "@earendil-works/pi-tui";
 import { createChatViewport } from "../node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/chat-viewport.js";
 import { createLocalWidgets } from "../src/local-widgets.js";
@@ -13,11 +13,14 @@ class TestTerminal implements Terminal {
   stop() {} async drainInput() {} write() {} moveBy() {} hideCursor() {} showCursor() {}
   clearLine() {} clearFromCursor() {} clearScreen() {} setTitle() {} setProgress() {} setProgramStatus() {}
 }
+
 class Renderer extends TuiAltScreen { flush() { this.doRender(); } }
+
 class Composer extends Input {
   getText() { return this.getValue(); }
   setText(value: string) { this.setValue(value); }
 }
+
 const theme = { fg: (_color: string, text: string) => text, bg: (_color: string, text: string) => text, bold: (text: string) => text };
 
 test("real fullscreen transcript reveals local focus, routes mouse and preserves the chat composer", () => {
@@ -34,37 +37,50 @@ test("real fullscreen transcript reveals local focus, routes mouse and preserves
   tui.setLayoutRoot(root); tui.setFocus(composer); tui.start();
   const entries: any[] = [];
   const renderers = new Map<string, Function>();
+
   const pi = {
     registerEntryRenderer: (type: string, renderer: Function) => renderers.set(type, renderer),
     registerCommand() {},
-    appendEntry(customType: string, data: unknown) {
+    appendEntry(customType: string, data: Parameters<ExtensionAPI["appendEntry"]>[1]) {
       const entry = { type: "custom", customType, data, id: String(entries.length) };
       entries.push(entry);
       const component = renderers.get(customType)?.(entry, { expanded: false }, theme);
+
       if (component) document.addChild(component);
     },
-  } as unknown as ExtensionAPI;
+  };
+
   const ctx = {
-    mode: "tui", sessionManager: { getBranch: () => entries, buildContextEntries: () => entries },
+    mode: "tui" as const, sessionManager: { getBranch: () => entries, buildContextEntries: () => entries },
     ui: {
       setWidget(_key: string, factory?: (host: Renderer, theme: any) => Component) {
-        hints.clear(); if (factory) hints.addChild(factory(tui, theme));
+        hints.clear();
+
+ if (factory) hints.addChild(factory(tui, theme));
       },
       onTerminalInput: (handler: any) => tui.addInputListener(handler),
     },
-  } as unknown as ExtensionContext;
+  };
+
   const manager = createLocalWidgets(pi);
-  const frame = () => { tui.flush(); return tui.getScreenLines().map(stripTerminalSequences); };
+
+  const frame = () => { tui.flush();
+
+ return tui.getScreenLines().map(stripTerminalSequences); };
+
   const locate = (text: string): [number, number] => {
     const lines = frame(); const y = lines.findIndex(line => line.includes(text));
     assert.ok(y >= 0, `Missing ${text}:\n${lines.join("\n")}`);
+
     return [lines[y].indexOf(text), y];
   };
+
   const click = (text: string) => {
     const [x, y] = locate(text);
     terminal.input(`\x1b[<0;${x + 2};${y + 1}M`); tui.flush();
     terminal.input(`\x1b[<0;${x + 2};${y + 1}m`); tui.flush();
   };
+
   try {
     const dialog = new Container(); dialog.addChild(new Input({ prompt: "Temporary dialog> " }));
     editor.clear(); editor.addChild(dialog); tui.setFocus(dialog);

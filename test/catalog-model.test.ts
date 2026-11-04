@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import type { ElementNode } from "@openuidev/lang-core";
-import { childNodes, componentSpecs, isField, limits, optionItems, systemPrompt } from "../src/catalog.js";
+import type { RenderedNode } from "../src/catalog.js";
+import { childNodes, componentSpecs, isField, limits, optionItems, systemPrompt, type TreeNode } from "../src/catalog.js";
 import { DocumentModel } from "../src/model.js";
 
 const allComponents = `$check = false
@@ -16,17 +16,23 @@ $step = "plan"
 $notes = "Line one\\nLine two"
 root = Stack([Accordion("details", "Details", [Text("Disclosure")], false), Callout("Notice", "Catalog example"), EditableTable("records", "Records", [{key: "item", label: "Item", type: "string"}], [{item: "One"}]), Text("Styled", {tone: "accent", bold: true, italic: true}), Select("choice", "Choice", [{value: "one", label: "First", description: "Available"}, {value: "two", label: "Second", disabled: true}], "one"), Input("title", "Title", "", null, {description: "Optional title"}), Button("Submit", @ToAssistant("Use values"), {variant: "primary"}), Table(["A", "B"], [[1, true]]), Checkbox("check", "Check", $check), MultiSelect("tags", "Tags", ["one", "two"], $tags), TextArea("notes", "Notes", $notes, null, {rows: 5}), Row([Badge("Label", "success"), Divider()]), Section("Section", [Markdown("**Markdown**")]), Card("Card", [CodeBlock("const n = 1", "ts")]), Tabs("tab", [{value: "first", label: "First", children: [List(["A", "B"], true)]}, {value: "second", label: "Second", children: [Text("Hidden")]}], $tab), Steps("step", [{value: "plan", label: "Plan", children: [Progress(25, 100, "Done")]}], $step), NumberInput("amount", "Amount", $amount, {min: 0, max: 10, step: 1}), Toggle("toggle", "Toggle", $toggle), Slider("slider", "Slider", $slider, 0, 100, null, {description: "Percent"}), DatePicker("date", "Date", $date, {minDate: "2024-01-01", maxDate: "2024-12-31"}), Tree("tree", "Tree", [{value: "parent", label: "Parent", children: [{value: "child", label: "Child"}]}], $tree)])`;
 
-function all(model: DocumentModel): ElementNode[] {
-  const result: ElementNode[] = [];
-  const visit = (node: ElementNode) => { result.push(node); childNodes(node).forEach(visit); };
+function all(model: DocumentModel): RenderedNode[] {
+  const result: RenderedNode[] = [];
+  const visit = (node: RenderedNode) => { result.push(node); childNodes(node).forEach(visit); };
+
   if (model.root) visit(model.root);
+
   return result;
 }
+
 const field = (model: DocumentModel, name: string) => all(model).find(node => isField(node) && node.props.name === name)!;
+
 const button = (model: DocumentModel, label = "Submit") => all(model).find(node => node.typeName === "Button" && node.props.label === label)!;
+
 const checked = (source: string) => {
   const model = new DocumentModel(source);
   assert.equal(model.valid, true, model.diagnostics.join("\n"));
+
   return model;
 };
 
@@ -34,10 +40,12 @@ test("all 28 catalog components parse, generate signatures and traverse every la
   assert.equal(Object.keys(componentSpecs).length, 28);
   const model = checked(allComponents);
   const found = new Set(all(model).map(node => node.typeName));
+
   for (const name of Object.keys(componentSpecs)) {
     assert.ok(found.has(name), name);
     assert.match(systemPrompt, new RegExp(`${name}\\(`));
   }
+
   assert.deepEqual(model.fieldErrors, {});
   assert.equal(model.formValues.check, false);
   assert.deepEqual(model.formValues.tags, ["one"]);
@@ -62,6 +70,7 @@ test("typed native bindings preserve booleans, numbers and arrays through edits 
   assert.equal(model.state.$notes, "A\nB");
   const result = model.activate(button(model));
   assert.equal(result.status, "submitted");
+
   if (result.status === "submitted") {
     assert.equal(result.values.check, true);
     assert.equal(result.values.amount, 3.5);
@@ -73,11 +82,14 @@ test("typed native bindings preserve booleans, numbers and arrays through edits 
 test("required and explicit errors include hidden pages and block both submission styles", () => {
   const model = checked('$page = "shown"\n$name = ""\n$accepted = false\n$error = "Fix this"\nroot = Stack([Tabs("page", [{value: "shown", label: "Shown", children: [Input("name", "Name", $name, null, {required: true})]}, {value: "hidden", label: "Hidden", children: [Checkbox("accepted", "Accept", $accepted, {required: true}), Input("manual", "Manual", "okay", null, {error: $error})]}], $page), Button("Submit", "submit"), Button("Assistant", @ToAssistant("Done")), Button("Fix", Action([@Set($name, "Ada"), @Set($accepted, true), @Set($error, "")]))])');
   assert.deepEqual(model.fieldErrors, { name: "Required.", accepted: "Must be checked.", manual: "Fix this" });
+
   for (const label of ["Submit", "Assistant"]) {
     const result = model.activate(button(model, label));
     assert.equal(result.status, "error");
+
     if (result.status === "error") assert.match(result.error, /name:.*accepted:.*manual:/);
   }
+
   assert.deepEqual(model.activate(button(model, "Fix")), { status: "updated" });
   assert.equal(model.valid, true);
   assert.deepEqual(model.fieldErrors, {});
@@ -91,6 +103,7 @@ test("a compound action can correct required values before submitting, or roll b
   assert.equal(model.valid, true);
   const result = model.activate(button(model));
   assert.equal(result.status, "submitted");
+
   if (result.status === "submitted") assert.deepEqual(result.context, { ok: true });
 });
 
@@ -110,6 +123,7 @@ test("disabled Tabs and Steps disable descendant controls and validation while r
     assert.equal(model.formValues.shown, "initial");
     const submission = model.activate(button(model));
     assert.equal(submission.status, "submitted");
+
     if (submission.status === "submitted") assert.equal(submission.values.hidden, "");
     assert.deepEqual(model.activate(button(model, "Update")), { status: "updated" });
     assert.equal(model.formValues.hidden, "programmatic");
@@ -154,6 +168,7 @@ test("date and numeric field errors remain editable while malformed configuratio
   assert.deepEqual(model.fieldErrors, {});
   model.setField(field(model, "d"), "2025-01-01");
   assert.match(model.fieldErrors.d, /on or before/);
+
   for (const source of ['NumberInput("n", "N", 1, {min: 2, max: 1})', 'Slider("s", "S", 1, 2, 1)', 'Slider("s", "S", 1, 0, 2, 0)', 'DatePicker("d", "D", "", {minDate: "2023-02-29"})', 'DatePicker("d", "D", "", {minDate: "2025-01-01", maxDate: "2024-01-01"})', 'Progress(101)']) {
     const invalid = new DocumentModel(`root = Stack([${source}])`);
     assert.equal(invalid.valid, false, source);
@@ -196,7 +211,15 @@ test("Tree normalizes hierarchy and disabled descendants and bounds total nodes/
   model.setField(field(model, "t"), "child");
   assert.equal(model.formValues.t, "b");
   const tooMany = Array.from({ length: limits.treeNodes + 1 }, (_, i) => ({ value: `n${i}`, label: `N${i}` }));
-  const depth = (n: number): unknown => ({ value: `n${n}`, label: `N${n}`, ...(n ? { children: [depth(n - 1)] } : {}) });
+
+  const depth = (n: number): TreeNode => {
+    const node: TreeNode = { value: `n${n}`, label: `N${n}` };
+
+    if (n) node.children = [depth(n - 1)];
+
+    return node;
+  };
+
   for (const tree of [tooMany, [depth(limits.treeDepth)], [{ value: "same", label: "A", children: [{ value: "same", label: "B" }] }]]) {
     const invalid = new DocumentModel(`root = Stack([Tree("t", "Tree", ${JSON.stringify(tree)}, "same")])`);
     assert.equal(invalid.valid, false);
@@ -219,10 +242,12 @@ test("field edits with wrong types, invalid choices or malformed binding outcome
 
 test("all-component streaming remains read-only and completes with typed values", () => {
   const model = new DocumentModel();
+
   for (let end = 1; end < allComponents.length; end += 29) {
     assert.doesNotThrow(() => model.update(allComponents.slice(0, end), true));
     assert.equal(model.valid, false);
   }
+
   model.update(allComponents, true);
   model.setField(field(model, "check"), true);
   model.setValue("$check", true);

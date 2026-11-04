@@ -1,5 +1,6 @@
 import { action, createLibrary, defineComponent, markReactive, type ElementNode } from "@openuidev/lang-core";
 import { z } from "zod";
+import { predicateParseContext } from "./predicate-validation.js";
 
 export const limits = {
   source: 65_536, nodes: 256, depth: 32, text: 4_000, rows: 200,
@@ -7,8 +8,11 @@ export const limits = {
 } as const;
 
 export type TableRow = Record<string, string | number | boolean>;
+
 export type FieldValue = string | boolean | number | string[] | TableRow[];
+
 export type Tone = "default" | "muted" | "accent" | "success" | "warning" | "error";
+
 export interface FieldOptions {
   description?: string;
   required?: boolean;
@@ -21,6 +25,7 @@ export interface FieldOptions {
   minDate?: string;
   maxDate?: string;
 }
+
 export interface NormalizedOption {
   value: string;
   label: string;
@@ -28,33 +33,57 @@ export interface NormalizedOption {
   disabled?: boolean;
   depth?: number;
 }
+
 export interface TreeNode extends Omit<NormalizedOption, "depth"> { children?: TreeNode[]; }
+
 export interface TabItem { value: string; label: string; children: unknown[]; }
 
 const fieldNameMax = 64;
+
 const fieldNamePattern = new RegExp(`^[A-Za-z_][A-Za-z0-9_-]{0,${fieldNameMax - 1}}$`);
+
 const collectionMin = 1;
+
 const rowGap = { min: 0, max: 8 };
+
 const textAreaRows = { min: 5, max: 12 };
 
 const text = z.string().max(limits.text);
+
 const name = z.string().regex(fieldNamePattern);
+
 const tone = z.enum(["default", "muted", "accent", "success", "warning", "error"]);
+
 const finite = z.number().finite();
+
 const children = z.array(z.any()).max(limits.nodes).describe("Child component calls or references; nested layouts are supported");
+
 const settings = z.object({ description: text.optional(), required: z.boolean().optional(), disabled: z.boolean().optional(), error: text.optional() });
+
 const numberSettings = settings.extend({ min: finite.optional(), max: finite.optional(), step: finite.positive().optional() });
+
 const dateSettings = settings.extend({ minDate: text.optional(), maxDate: text.optional() });
+
 const option = z.object({ value: text, label: text, description: text.optional(), disabled: z.boolean().optional() });
+
 const options = z.array(z.union([text, option])).min(collectionMin).max(limits.options);
+
 const scalar = z.union([text, finite, z.boolean(), z.null()]);
+
 const stringBinding = z.string().max(limits.text);
+
 const booleanBinding = z.boolean();
+
 const numberBinding = z.number().finite();
+
 const multipleBinding = z.array(text).max(limits.options);
+
 export const tableRowsSchema = z.array(z.record(name, z.union([text, finite, z.boolean()]))).max(limits.rows);
+
 export const tableColumnsSchema = z.array(z.object({ key: name, label: text, type: z.enum(["string", "number", "boolean"]) })).min(collectionMin).max(limits.columns);
+
 export type TableColumn = z.infer<typeof tableColumnsSchema>[number];
+
 for (const schema of [stringBinding, booleanBinding, numberBinding, multipleBinding, tableRowsSchema]) markReactive(schema);
 
 // Zod's lazy schema exports as a recursive JSON Schema reference. The model
@@ -66,6 +95,7 @@ const treeNodeSchema: z.ZodType<TreeNode> = z.lazy(() => z.object({
   disabled: z.boolean().optional(),
   children: z.array(treeNodeSchema).max(limits.treeNodes).optional(),
 }));
+
 const pages = z.array(z.object({ value: text, label: text, children })).min(collectionMin).max(limits.options);
 
 /** Property order is the public positional OpenUI Lang signature. */
@@ -99,6 +129,7 @@ export const componentSpecs = {
   DatePicker: z.object({ name, label: text, value: stringBinding, settings: dateSettings.optional() }),
   Tree: z.object({ name, label: text, nodes: z.array(treeNodeSchema).min(collectionMin).max(limits.treeNodes), value: stringBinding, settings: settings.optional() }),
 };
+
 export type ComponentName = keyof typeof componentSpecs;
 
 export const descriptions: Record<ComponentName, string> = {
@@ -132,6 +163,7 @@ export const descriptions: Record<ComponentName, string> = {
   Tree: `Single selection from recursive nodes {value,label,children?,description?,disabled?}. Provide ${collectionMin} through ${limits.treeNodes} root nodes, at most ${limits.treeNodes} total nodes and depth ${limits.treeDepth}; child arrays may be empty. All values must be unique; disabled parent nodes disable descendants.`,
 };
 
+// SAFETY: Object.entries enumerates only componentSpecs keys, each of which has a corresponding description.
 export const library = createLibrary({
   root: "Stack",
   components: Object.entries(componentSpecs).map(([componentName, props]) => defineComponent({
@@ -141,9 +173,10 @@ export const library = createLibrary({
 
 export const systemPrompt = library.prompt({
   bindings: true, builtinFunctions: true, toolCalls: false, editMode: false,
-  preamble: "Use show_ui for static displays, nonblocking local exploration, or answer-collecting decisions in Pi's native terminal. Choose the interaction contract, then put a complete OpenUI Lang document in source.",
+  preamble: "Present responses with OpenUI components alongside Markdown and natural language when they materially help the user understand, explore, compare, or act on information. Use show_ui for static displays, nonblocking local explanations and exploration, or answer-collecting decisions in Pi's native terminal. Choose the interaction contract, then put a complete OpenUI Lang document in source.",
   additionalRules: [
-    "Use UI proactively when choosing, comparing, inspecting or adjusting inputs improves the task; an explicit UI request is not required. Follow the user's preferred medium. Use prose for simple facts and short explanations. Display-only documents render inline without waiting; do not add acknowledgement buttons merely to show content.",
+    "Use UI proactively when it provides a clear advantage, even without an explicit visualization request. Do not ask permission merely to display an appropriate component; still respect the user's preferred medium and approvals for external actions. Choose by user intent, not novelty. Prefer the simplest representation and avoid decorative or redundant widgets. Explain essential conclusions in natural language without hiding the main answer behind interaction. Use prose for reasoning and simple answers. Display-only documents render inline without waiting; do not add acknowledgement buttons merely to show content.",
+    "Use Table for structured or multidimensional comparisons, Card for distinct items with related attributes, Slider for numeric exploration, and Select/MultiSelect for discrete alternatives. Use Accordion for optional explanatory detail, Tabs for related perspectives, Steps for process stages, and Tree for hierarchies. Use a form for multiple required inputs only when a conversational question would not suffice. Every control must perform a meaningful action and keep displayed values consistent with state. Charts, geographic maps and interactive diagrams are not supplied components; use an accurate supported representation or another appropriate available tool rather than inventing components.",
     "Choose among three contracts: a display-only document returns status displayed immediately; interaction: local mounts an interactive transcript widget and returns status mounted plus widgetId immediately without values; default interaction or interaction: collect waits for a submitted/cancelled answer when controls are present. Removing Submit does not make a collect-mode document nonblocking. Use local for optional calculators, comparisons, tabs, trees and expandable explanations when no answer must reach the agent; the worker-cost example below uses interaction: local.",
     "show_ui accepts presentation: auto (default), inline, or fullscreen. Local mode requires auto/inline and rejects fullscreen; its composer stays available and widgets remain interactive across later chat/turns. Local widgets start compact; F2 while focused or the header control expands/collapses their height within the transcript without sending values. In collect mode prefer auto/inline; reserve fullscreen for requested or dense inspection and use F2 to expand/collapse without losing edits. Displayed and mounted are neither a user choice nor approval.",
     "Choose the interaction pattern first, then the smallest supported component composition: purpose, essential controls, visible consequences or comparison, and a final action only when collecting an answer. Reuse known answers and sensible defaults. Read the openui skill, when available, for design recipes; these schemas remain the authoritative signatures.",
@@ -170,59 +203,130 @@ export const systemPrompt = library.prompt({
     '$tab = "details"\n$agree = false\n$tags = []\n$quantity = 1\nroot = Stack([Tabs("page", [{value: "details", label: "Details", children: [NumberInput("quantity", "Quantity", $quantity, {min: 1, max: 10}), MultiSelect("tags", "Tags", ["Urgent", "Reviewed"], $tags)]}, {value: "confirm", label: "Confirm", children: [Checkbox("agree", "I confirm", $agree, {required: true})]}], $tab), Button("Submit", @ToAssistant("Use these values"))])',
   ],
 });
+
 export const modelPrompt = systemPrompt;
 
-export function isElement(value: unknown): value is ElementNode {
-  return !!value && typeof value === "object" && (value as ElementNode).type === "element";
+/** Rendered object literals may omit parser-owned streaming metadata. */
+export type RenderedNode = Omit<ElementNode, "partial"> & { partial?: boolean };
+
+const elementSchema = z.object({
+  type: z.literal("element"),
+  typeName: z.string(),
+  props: z.record(z.string(), z.unknown()),
+  partial: z.boolean().optional(),
+  statementId: z.string().optional(),
+  hasDynamicProps: z.boolean().optional(),
+});
+
+/** Validate the upstream header only. Streaming props can still be incomplete. */
+export function isElement(value: unknown): value is RenderedNode {
+  return elementSchema.safeParse(value, predicateParseContext).success;
 }
 
 const fieldNames = new Set<string>(["Input", "Select", "Checkbox", "MultiSelect", "TextArea", "Tabs", "Steps", "NumberInput", "Toggle", "Slider", "DatePicker", "Tree", "Accordion", "EditableTable"]);
-export function isField(node: ElementNode): boolean { return fieldNames.has(node.typeName); }
 
-export function fieldOptions(node: ElementNode): FieldOptions {
-  const value = node.props.settings;
-  return value && typeof value === "object" && !Array.isArray(value) ? value as FieldOptions : {};
+export function isField(node: RenderedNode): boolean { return fieldNames.has(node.typeName); }
+
+export function fieldOptions(node: RenderedNode): FieldOptions {
+  const schema = node.typeName === "NumberInput" || node.typeName === "Slider" ? numberSettings
+    : node.typeName === "DatePicker" ? dateSettings
+    : node.typeName === "TextArea" ? componentSpecs.TextArea.shape.settings.unwrap() : settings;
+
+  const checked = schema.safeParse(node.props.settings, predicateParseContext);
+
+  return checked.success ? checked.data : {};
 }
 
-export function valueSchemaFor(node: ElementNode): z.ZodType | undefined {
+export function valueSchemaFor(node: RenderedNode): z.ZodType | undefined {
+  if (!Object.hasOwn(componentSpecs, node.typeName)) return;
+
+  // SAFETY: The own-key check limits this lookup to the component schema registry.
   const spec = componentSpecs[node.typeName as ComponentName];
-  return spec && "value" in spec.shape ? spec.shape.value as z.ZodType : undefined;
+
+  return "value" in spec.shape ? spec.shape.value : undefined;
 }
 
 /** All direct children, including inactive pages; validation must cover every page. */
-export function childNodes(node: ElementNode): ElementNode[] {
+export function childNodes(node: RenderedNode): RenderedNode[] {
   if (["Stack", "Row", "Section", "Card", "Accordion"].includes(node.typeName)) {
     return Array.isArray(node.props.children) ? node.props.children.filter(isElement) : [];
   }
+
   if (node.typeName === "Tabs" || node.typeName === "Steps") {
-    return Array.isArray(node.props.items) ? node.props.items.flatMap(item =>
-      item && typeof item === "object" && Array.isArray(item.children) ? item.children.filter(isElement) : []) : [];
+    const checked = pages.safeParse(node.props.items, predicateParseContext);
+
+    return checked.success ? checked.data.flatMap(item => item.children.filter(isElement)) : [];
   }
+
   return [];
 }
 
+interface OptionCandidate {
+  value?: unknown;
+  label?: unknown;
+  description?: unknown;
+  disabled?: unknown;
+  children?: unknown;
+}
+
+type OptionHeader = OptionCandidate & Pick<NormalizedOption, "value" | "label">;
+
+const optionObjectSchema = z.object({});
+
+const optionCandidateSchema = z.custom<OptionCandidate>(value => optionObjectSchema.safeParse(value, predicateParseContext).success || Array.isArray(value));
+
+const optionTextSchema = z.string();
+
+const isOptionText = (value: unknown): value is string => optionTextSchema.safeParse(value, predicateParseContext).success;
+
+function isOptionHeader(value: unknown): value is OptionHeader {
+  const candidate = optionCandidateSchema.safeParse(value, predicateParseContext);
+
+  return candidate.success && isOptionText(candidate.data.value) && isOptionText(candidate.data.label);
+}
+
 /** Normalize labels and values without changing what is stored or submitted. */
-export function optionItems(node: ElementNode): NormalizedOption[] {
+export function optionItems(node: RenderedNode): NormalizedOption[] {
   if (node.typeName === "Tree") {
     const output: NormalizedOption[] = [];
-    const visit = (items: unknown, depth: number, parentDisabled: boolean): void => {
+
+    const visit = (items: RenderedNode["props"][string], depth: number, parentDisabled: boolean): void => {
       if (!Array.isArray(items) || depth >= limits.treeDepth || output.length >= limits.treeNodes) return;
+
       for (const item of items) {
-        if (!item || typeof item !== "object" || typeof item.value !== "string" || typeof item.label !== "string") continue;
+        if (!isOptionHeader(item)) continue;
         const disabled = parentDisabled || item.disabled === true;
-        output.push({ value: item.value, label: item.label, depth, ...(typeof item.description === "string" ? { description: item.description } : {}), ...(disabled ? { disabled: true } : {}) });
+        const normalized: NormalizedOption = { value: item.value, label: item.label, depth };
+
+        if (isOptionText(item.description)) normalized.description = item.description;
+
+        if (disabled) normalized.disabled = true;
+        output.push(normalized);
+
         if (output.length >= limits.treeNodes) return;
         visit(item.children, depth + 1, disabled);
       }
     };
+
     visit(node.props.nodes, 0, false);
+
     return output;
   }
+
   const items = node.typeName === "Tabs" || node.typeName === "Steps" ? node.props.items : node.props.options;
+
   if (!Array.isArray(items)) return [];
+
   return items.flatMap((item): NormalizedOption[] => {
-    if (typeof item === "string") return [{ value: item, label: item }];
-    if (!item || typeof item !== "object" || typeof item.value !== "string" || typeof item.label !== "string") return [];
-    return [{ value: item.value, label: item.label, ...(typeof item.description === "string" ? { description: item.description } : {}), ...(item.disabled === true ? { disabled: true } : {}) }];
+    if (isOptionText(item)) return [{ value: item, label: item }];
+
+    if (!isOptionHeader(item)) return [];
+    const normalized: NormalizedOption = { value: item.value, label: item.label };
+
+    if (isOptionText(item.description)) normalized.description = item.description;
+
+    if (item.disabled === true) normalized.disabled = true;
+
+    return [normalized];
   });
 }

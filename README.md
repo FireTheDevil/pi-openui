@@ -20,6 +20,8 @@ Tested on **Pi 1.4.0 and 1.5.0**: the automated and CLI checks in the [validatio
 
 See the [versioning policy](docs/versioning.md) for future release conventions and compatibility expectations.
 
+See the [0.8.0 release notes](docs/release-notes.md#080) for additions, breaking changes, and migration guidance.
+
 ## Install
 
 Requires Node.js 22.19+ and Pi with the `@earendil-works` package namespace (tested on Node 24).
@@ -228,9 +230,15 @@ Malformed source, unresolved references, invalid props, duplicate field names an
 ## Development
 
 ```sh
+npm run lint
 npm run typecheck
 npm test
 ```
+
+Lint uses Oxlint and the vendored anti-slop rules in `tools/oxlint/anti-slop`.
+Keep `oxlint` and `@oxlint/plugins` pinned to the same version. See the
+[plugin provenance](tools/oxlint/anti-slop/UPSTREAM.md) before updating the rules.
+The 0.8.0 source cleanup passes every configured lint rule without exceptions.
 
 `src/catalog.ts` defines the Zod component specifications and generated model prompt. `src/model.ts` owns parsing, evaluation, typed state, validation and action dispatch. `src/view.ts` composes layouts and routes focus and pointer events; `src/controls.ts`, `src/displays.ts` and `src/presentation.ts` implement widgets, content and theme handling. `src/editable-table.ts` owns cell text, validation and the native grid editor. `src/inline-document.ts` renders persistent display-only documents. `src/local-widgets.ts` manages persistent local widgets and their focus/lifecycle; `src/local-policy.ts` rejects nonlocal actions; `src/local-demo.ts` supplies the hosting explorer and tabbed explanation. `src/summary.ts` renders receipts; `src/code-summary.ts` persists native code-mode content/receipts and adapts its transcript display. `src/conversion.ts` supplies optional blocking-call metadata through the conversion package's public extension-tool protocol. `src/index.ts` owns Pi registration and view lifecycle. Automated tests exercise real lang-core and Pi widgets, hidden-page validation, actions, malformed/streaming input, resizing, receipt data preservation, session branches, skill discovery, Pi's actual extension loader, its fullscreen mouse decoder, and native codemode's QuickJS worker, using simulated host/terminal boundaries.
 

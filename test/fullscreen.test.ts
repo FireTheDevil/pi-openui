@@ -27,6 +27,7 @@ class TestTerminal implements Terminal {
   setProgress() {}
   setProgramStatus() {}
 }
+
 class Renderer extends TuiAltScreen { flush() { this.doRender(); } }
 
 test("fullscreen overlay routes SGR clicks to native controls after resize and scrolling", () => {
@@ -39,28 +40,38 @@ test("fullscreen overlay routes SGR clicks to native controls after resize and s
   const model = new DocumentModel(DEMO_SOURCE);
   let result: UIResult | undefined;
   let overlay: ReturnType<Renderer["showOverlay"]> | undefined;
+
   const view = new OpenUIView(model, {
     getHeight: () => terminal.rows,
     requestRender: () => tui.requestRender(),
     onDone: value => { result = value; overlay?.hide(); },
     fillHeight: true,
   });
+
   tui.start();
   overlay = tui.showOverlay(view, { width: "100%", maxHeight: "100%", anchor: "top-left", margin: 0 });
-  const lines = () => { tui.flush(); return tui.getScreenLines().map(stripTerminalSequences); };
+
+  const lines = () => { tui.flush();
+
+ return tui.getScreenLines().map(stripTerminalSequences); };
+
   const at = (text: string): [number, number] => {
     const frame = lines();
     const row = frame.findIndex(line => line.includes(text));
     assert.ok(row >= 0, `Missing ${text}:\n${frame.join("\n")}`);
+
     return [frame[row].indexOf(text), row];
   };
+
   const mouse = (x: number, y: number, button = 0, release = false) => {
     terminal.input(`\x1b[<${button};${x + 1};${y + 1}${release ? "m" : "M"}`);
     tui.flush();
   };
+
   const click = (x: number, y: number) => { mouse(x, y); mouse(x, y, 0, true); };
+
   try {
-    assert.match(terminal.output, /\x1b\[\?1006h/);
+    assert.ok(terminal.output.includes("\x1b[?1006h"));
     const [x, y] = at("Test");
     click(x + 1, y);
     assert.equal(model.formValues.choice, "Test");
@@ -78,6 +89,7 @@ test("fullscreen overlay routes SGR clicks to native controls after resize and s
     terminal.rows = 14;
     terminal.resize();
     tui.flush();
+
     for (let n = 0; n < 12; n++) mouse(40, 0, 65);
     at("[ Send to Pi ]");
     terminal.columns = 100;
@@ -87,10 +99,12 @@ test("fullscreen overlay routes SGR clicks to native controls after resize and s
     const [buttonX, buttonY] = at("[ Send to Pi ]");
     click(buttonX + 3, buttonY);
     assert.equal(result?.status, "submitted");
+
     if (result?.status === "submitted") {
       assert.equal(result.action, "next_step");
       assert.deepEqual(result.values, { choice: "Test", note: "clicked: mouse input" });
     }
+
     assert.equal(tui.getFocusedComponent(), editor, "submitting must not refocus the closed overlay");
     terminal.input("typing restored");
     assert.equal(editorText, "typing restored");

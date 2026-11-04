@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { hasUnsafeControls, withoutSgr } from "./terminal-text.js";
 import test from "node:test";
 import { CURSOR_MARKER, Editor, Input, SelectList, stripTerminalSequences, visibleWidth, type TuiMouseEvent } from "@earendil-works/pi-tui";
 import type { ElementNode } from "@openuidev/lang-core";
@@ -6,19 +7,28 @@ import { DocumentModel } from "../src/model.js";
 import { createFieldControl, type ControlStyle } from "../src/controls.js";
 
 const style: ControlStyle = { fg: (_color, text) => text, bg: (_color, text) => text, bold: text => text };
+
 function fixture(declarations: string, component: string, width = 60) {
   const source = `${declarations}\nroot = Stack([${component}, Button("Send", @ToAssistant("Use my input"))]);`;
   const model = new DocumentModel(source);
   assert.equal(model.valid, true, model.diagnostics.join("; "));
+  // SAFETY: The valid Stack fixture above contains the requested field followed by its Button.
   const node = () => (model.root!.props.children as ElementNode[])[0];
   const control = createFieldControl(node(), model, style);
   const render = (focused = true, nextWidth = width) => control.render(nextWidth, focused);
   const plain = () => render().map(stripTerminalSequences);
-  const key = (data: string) => { render(); const result = control.handleInput(data); control.update(node()); return result; };
+
+  const key = (data: string) => { render(); const result = control.handleInput(data); control.update(node());
+
+ return result; };
+
   const mouse = (x: number, y: number, type: TuiMouseEvent["type"] = "click") => {
     render(); const result = control.handleMouse({ type, button: "left", x, y, screenX: x, screenY: y, width, height: 30, shift: false, alt: false, ctrl: false });
-    control.update(node()); return result;
+    control.update(node());
+
+ return result;
   };
+
   return { model, control, render, plain, key, mouse, node };
 }
 
@@ -97,16 +107,21 @@ test("rejected dependent edits restore accepted text and numeric values before s
     const initial = numeric ? 10 : "A";
     const dependency = numeric ? 'Progress(5, $value)' : 'Select("choice", "Choice", [$value], "A")';
     const f = fixture(`$value = ${JSON.stringify(initial)};`, `${type}("value", "Value", $value), ${dependency}`);
+
     if (numeric) { f.key("\x05"); f.key("\x15"); }
+
     f.key(numeric ? "2" : "B");
     assert.equal(f.model.valid, true);
     assert.equal(f.model.formValues.value, initial);
     assert.equal(f.control.error, undefined);
     const native = f.control.native!;
+    // SAFETY: These Input, TextArea and NumberInput fixtures construct only native Input or Editor widgets.
     assert.equal(native instanceof Editor ? native.getText() : (native as Input).getValue(), String(initial), `${type} displays the accepted value`);
+    // SAFETY: The fixture declares a validated Stack with the field, dependent component and Button.
     const children = f.model.root!.props.children as ElementNode[];
     const result = f.model.activate(children[children.length - 1]);
     assert.equal(result.status, "submitted");
+
     if (result.status === "submitted") assert.equal(result.values.value, initial, `${type} submits the displayed value`);
   }
 });
@@ -122,7 +137,9 @@ test("native TextArea supports newlines, multiline paste, mouse cursor positioni
   assert.match(String(f.model.formValues.value), /paste\nblock/);
   assert.equal(String(f.model.formValues.value).includes("\x1b"), false);
   f.key("\x1b[200~" + Array.from({ length: 15 }, (_, index) => `line ${index}`).join("\n") + "\x1b[201~");
+  // SAFETY: TextAreaControl constructs a native Editor, and this fixture requests TextArea.
   assert.equal((f.control.native as Editor).getText(), f.model.formValues.value, "large pasted text stays directly editable instead of a collapsed chat paste marker");
+
   for (const width of [1, 2, 10, 30]) assert.ok(f.render(true, width).every(line => visibleWidth(line) <= width));
   assert.ok(f.render(false).every(line => !line.includes(CURSOR_MARKER) && !line.includes("\x1b_pi:fc")));
 });
@@ -158,14 +175,16 @@ test("DatePicker sanitizes invalid values in its narrow view without changing ed
   const f = fixture(`$value = ${JSON.stringify(value)};`, 'DatePicker("value", "Date", $value)', 16);
   assert.match(f.model.fieldErrors.value, /valid YYYY-MM-DD/);
   assert.match(f.plain().join("\n"), /baddate value/);
+
   for (const width of [1, 2, 16, 20, 21, 35]) {
     for (const focused of [false, true]) {
       const lines = f.render(focused, width);
       assert.ok(lines.every(line => visibleWidth(line) <= width));
-      const output = lines.join("\n").replace(/\x1b\[[0-9;]*m/g, "");
-      assert.doesNotMatch(output, /[\x00-\x08\x0b-\x1f\x7f-\x9f]/);
+      const output = withoutSgr(lines.join("\n"));
+      assert.equal(hasUnsafeControls(output), false);
     }
   }
+
   assert.equal(f.model.formValues.value, value, "rendering preserves the original invalid field value");
   f.key("\x1b[C");
   assert.equal(f.model.fieldErrors.value, undefined, "calendar editing still corrects an invalid value");
@@ -190,6 +209,7 @@ test("typed controls reject editing while disabled", () => {
     ['$value = 1;', 'Slider("value", "Count", $value, 0, 10, 1, {disabled:true})'],
     ['$value = "2026-01-01";', 'DatePicker("value", "Date", $value, {disabled:true})'],
   ];
+
   for (const [declaration, component] of controls) {
     const f = fixture(declaration, component);
     const before = f.model.formValues;
@@ -202,18 +222,26 @@ test("Tabs and Steps disable native and typed descendants until a local action e
   for (const layout of ["Tabs", "Steps"]) {
     const model = new DocumentModel(`$locked = true\nroot = Stack([${layout}("page", [{value:"one",label:"One",children:[Input("text","Text","hello"),TextArea("notes","Notes","hello"),Checkbox("flag","Flag",false)]}], "one", {disabled:$locked}), Button("Unlock", @Set($locked, false))])`);
     assert.equal(model.valid, true, model.diagnostics.join("; "));
+
     const children = () => {
+      // SAFETY: This validated source declares a navigation group as its first Stack child.
       const group = (model.root!.props.children as ElementNode[])[0];
+
+      // SAFETY: Both navigation fixtures declare an item with component-only children.
       return (group.props.items as Array<{ children: ElementNode[] }>)[0].children;
     };
+
     const controls = children().map(node => createFieldControl(node, model, style));
     const before = model.formValues;
+
     for (const control of controls) {
       control.render(40, true);
       assert.equal(control.handleInput(" ").handled, false);
       assert.equal(control.handleMouse({ type: "click", button: "left", x: 3, y: 0, screenX: 3, screenY: 0, width: 40, height: 20, shift: false, alt: false, ctrl: false }), undefined);
     }
+
     assert.deepEqual(model.formValues, before);
+    // SAFETY: The validated fixture declares the Reset Button as its second Stack child.
     assert.deepEqual(model.activate((model.root!.props.children as ElementNode[])[1]), { status: "updated" });
     controls.forEach((control, index) => {
       control.update(children()[index]);
@@ -230,6 +258,7 @@ test("streaming typed controls ignore keyboard and mouse changes", () => {
   const source = '$value = false;\nroot = Stack([Checkbox("value", "Flag", $value)])';
   const model = new DocumentModel();
   model.update(source, true);
+  // SAFETY: The validated source declares the tested field as its first Stack child.
   const node = (model.root!.props.children as ElementNode[])[0];
   const control = createFieldControl(node, model, style);
   control.render(30, true);

@@ -13,7 +13,10 @@ summary = Text("Selected: " + $choice + ", " + $note)
 table = Table(["Name", "Value"], [["one", 1], ["enabled", true], ["empty", null]])
 submit = Button("Submit", "submit")`;
 
-function children(model: DocumentModel): ElementNode[] { return model.root!.props.children as ElementNode[]; }
+function children(model: DocumentModel): ElementNode[] {
+  // SAFETY: Every fixture declares a Stack root containing only component children.
+  return model.root!.props.children as ElementNode[];
+}
 
 test("uses lang-core's generated prompt for all six components and bindings", () => {
   for (const name of ["Text", "Stack", "Select", "Input", "Button", "Table"]) assert.match(systemPrompt, new RegExp(`${name}\\(`));
@@ -47,11 +50,13 @@ test("supports literal form values and lang-core assignment bindings", () => {
 
 test("streams partial strings and forward references and finalizes without throwing", () => {
   const model = new DocumentModel();
+
   // Exercise boundaries inside declarations, escapes, quotes, function names and lists.
   for (let end = 1; end <= document.length; end++) {
     assert.doesNotThrow(() => model.update(document.slice(0, end), true));
     assert.equal(model.valid, false);
   }
+
   model.update(document, false);
   assert.equal(model.valid, true, model.diagnostics.join("\n"));
   assert.equal(children(model)[0].props.text, "Native OpenUI");
@@ -87,6 +92,7 @@ test("rejects malformed, truncated, unresolved, cyclic and unsupported documents
     'root = Stack([])\ndata = Query("tool", {})',
     'root = Stack([])\ndata = Mutation("tool", {})',
   ];
+
   for (const source of invalid) {
     const model = new DocumentModel(source);
     assert.equal(model.valid, false, source);

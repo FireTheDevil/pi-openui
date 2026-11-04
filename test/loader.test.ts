@@ -49,8 +49,10 @@ test("Pi's actual loader resolves TypeScript siblings and shares its native TUI"
       await rm(emptyAgentDir, { recursive: true, force: true });
     }
   `;
+
   const child = spawnSync(process.execPath, ["--input-type=module", "-e", script], {
     cwd: new URL("..", import.meta.url), encoding: "utf8", timeout: 30_000,
   });
+
   assert.equal(child.status, 0, child.stderr || child.error?.message);
 });

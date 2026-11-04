@@ -1,30 +1,37 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import type { ElementNode } from "@openuidev/lang-core";
+import type { RenderedNode } from "../src/catalog.js";
 import { childNodes } from "../src/catalog.js";
 import { HOSTING_EXPLORER_SOURCE, LOCAL_EXPLANATION_SOURCE } from "../src/local-demo.js";
 import { DocumentModel } from "../src/model.js";
 import { OpenUIView } from "../src/view.js";
 
-function nodes(model: DocumentModel): ElementNode[] {
-  const result: ElementNode[] = [];
-  const visit = (node: ElementNode) => { result.push(node); childNodes(node).forEach(visit); };
+function nodes(model: DocumentModel): RenderedNode[] {
+  const result: RenderedNode[] = [];
+  const visit = (node: RenderedNode) => { result.push(node); childNodes(node).forEach(visit); };
+
   if (model.root) visit(model.root);
+
   return result;
 }
-function node(model: DocumentModel, type: string, name?: string): ElementNode {
+
+function node(model: DocumentModel, type: string, name?: string): RenderedNode {
   const found = nodes(model).find(item => item.typeName === type && (name === undefined || item.props.name === name || item.props.label === name));
   assert.ok(found, `${type} ${name ?? ""}`);
+
   return found;
 }
+
 function create(source: string): DocumentModel {
   const model = new DocumentModel(source);
   assert.equal(model.valid, true, model.diagnostics.join("\n"));
+
   return model;
 }
 
 test("hosting explorer recomputes all plan prices and ties from edited workers", () => {
   const model = create(HOSTING_EXPLORER_SOURCE);
+
   try {
     for (const [workers, prices, cheapest] of [
       [4, [18, 20, 40], "Basic ($18/month)"],
@@ -35,13 +42,16 @@ test("hosting explorer recomputes all plan prices and ties from edited workers",
       [13, [54, 52, 44], "Pro ($44/month)"],
     ] as const) {
       model.setField(node(model, "NumberInput", "workers"), workers);
+      // SAFETY: The checked hosting explorer source declares scalar-cell Table rows.
       const rows = node(model, "Table").props.rows as unknown[][];
       assert.deepEqual(rows.map(row => row[3]), prices.map(price => `$${price}`));
       assert.ok(nodes(model).some(item => item.typeName === "Text" && item.props.text === `Cheapest: ${cheapest}`));
       assert.equal(model.valid, true);
     }
+
     assert.deepEqual(model.activate(node(model, "Button", "Reset workers")), { status: "updated" });
     assert.equal(model.state.$workers, 4);
+    // SAFETY: Reset preserves the same validated Table row structure as the initial explorer.
     assert.equal((node(model, "Table").props.rows as unknown[][])[0][3], "$18");
   } finally { model.dispose(); }
 });
@@ -50,6 +60,7 @@ test("non-form explanation navigates and expands through native keyboard interac
   const model = create(LOCAL_EXPLANATION_SOURCE);
   let done = 0;
   const view = new OpenUIView(model, { getHeight: () => 24, requestRender() {}, onDone() { done++; } });
+
   try {
     view.render(96);
     view.handleInput("\x1b[C");

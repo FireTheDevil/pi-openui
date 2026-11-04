@@ -2,6 +2,7 @@ import { stripTerminalSequences } from "@earendil-works/pi-tui";
 import type { Theme, ThemeBg, ThemeColor } from "@earendil-works/pi-coding-agent";
 
 export type HostTheme = Partial<Pick<Theme, "fg" | "bg" | "bold" | "italic" | "underline" | "strikethrough">>;
+
 export interface PresentationStyle {
   fg(color: ThemeColor, text: string): string;
   bg(color: ThemeBg, text: string): string;
@@ -14,10 +15,18 @@ export interface PresentationStyle {
 }
 
 /** Model text is data; trusted theme styling is applied only after this step. */
-export function safeText(value: unknown): string {
-  return stripTerminalSequences(String(value ?? ""))
-    .replace(/[\x00-\x08\x0b-\x1f\x7f-\x9f]/g, "")
-    .replace(/\t/g, "    ");
+export function safeText(value: Parameters<StringConstructor>[0]): string {
+  const text = stripTerminalSequences(String(value ?? ""));
+  let result = "";
+
+  for (const character of text) {
+    const code = character.charCodeAt(0);
+
+    if (code === 9) result += "    ";
+    else if (code === 10 || code >= 32 && (code < 127 || code > 159)) result += character;
+  }
+
+  return result;
 }
 
 export function presentation(getTheme: () => HostTheme | undefined, host: Pick<PresentationStyle, "requestRender" | "getHeight"> = {}): PresentationStyle {

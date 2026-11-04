@@ -14,6 +14,7 @@ root = Stack([
   MultiSelect("checks", "Selected checks", ["Tests", "Types"], ["Tests", "Types"]),
   Button("Submit review", @ToAssistant("Use these choices", {internal: $internal}))
 ]);`;
+
 const theme = { fg: (_color: string, value: string) => value, bg: (_color: string, value: string) => value,
   bold: (value: string) => value, italic: (value: string) => value };
 
@@ -23,26 +24,35 @@ function host() {
   const messages: any[] = [], entries: any[] = [];
   let view: OpenUIView;
   let userMessages = 0;
-  const api = {
+
+  const api: Pick<ExtensionAPI, "registerTool" | "registerCommand" | "registerMessageRenderer" | "registerEntryRenderer" | "registerToolRenderer" | "on" | "getActiveTools" | "appendEntry" | "sendMessage" | "sendUserMessage"> = {
     registerTool: (tool: any) => tools.set(tool.name, tool),
     registerCommand: (name: string, command: any) => commands.set(name, command),
     registerMessageRenderer: (name: string, renderer: Function) => messageRenderers.set(name, renderer),
     registerEntryRenderer: (name: string, renderer: Function) => entryRenderers.set(name, renderer),
     registerToolRenderer() {},
-    on: (name: string, handler: Function) => events.set(name, handler),
+    on: (name, handler) => {
+      events.set(name, handler);
+
+      return () => { events.delete(name); };
+    },
     getActiveTools: () => [...tools.keys()],
-    appendEntry: (customType: string, data: unknown) => entries.push({ type: "custom", customType, data }),
-    sendMessage: (message: unknown, options: unknown) => messages.push({ message, options }),
+    appendEntry: (customType: string, data: Parameters<ExtensionAPI["appendEntry"]>[1]) => entries.push({ type: "custom", customType, data }),
+    sendMessage: (message: Parameters<ExtensionAPI["sendMessage"]>[0], options: Parameters<ExtensionAPI["sendMessage"]>[1]) => messages.push({ message, options }),
     sendUserMessage() { userMessages++; },
-  } as unknown as ExtensionAPI;
+  };
+
   const ctx = { mode: "tui", hasUI: true, abort() {}, sessionManager: { getBranch: () => entries }, ui: {
     notify() {},
     custom: (factory: Function) => new Promise(resolve => {
       view = factory({ terminal: { rows: 50 }, requestRender() {} }, theme, {}, resolve);
     }),
   } };
-  openuiExtension(api);
+
+  // SAFETY: The typed fixture supplies the registration, persistence and message capabilities used in these collect-mode receipt paths; no optional event bus is exposed.
+  openuiExtension(api as ExtensionAPI);
   const lines = () => view.render(100).map(stripTerminalSequences);
+
   return { tools, commands, ctx, messages, entries, events, messageRenderers, entryRenderers,
     get userMessages() { return userMessages; },
     key(data: string) { lines(); view.handleInput(data); },
@@ -62,9 +72,11 @@ test("tool receipts select readable fields while preserving the complete typed m
   const pending = tool.execute("direct", params, undefined, undefined, h.ctx);
   h.click("Submit review");
   const result = await pending;
+
   const expected = { status: "submitted", action: "continue_conversation", message: "Use these choices",
     context: { internal: "keep this for the agent" }, state: { $internal: "keep this for the agent" },
     values: { owner: "Ada", priority: "deep", retries: 3, enabled: true, checks: ["Tests", "Types"] } };
+
   assert.deepEqual(result.structuredContent, expected);
   assert.deepEqual(JSON.parse(result.content[0].text), expected);
   assert.deepEqual(result.details.openuiReceipt.fields, [
@@ -107,6 +119,7 @@ test("direct cancellation and malformed source get receipts without fabricated s
 test("Pi validation errors and incomplete historical results render safely", () => {
   const tool = host().tools.get("show_ui");
   const context = { isError: true };
+
   for (const result of [
     { content: [{ type: "text", text: "Invalid arguments" }], details: {} },
     { content: [{ type: "text", text: '{"status":"submitted"}' }], details: undefined },
@@ -116,6 +129,7 @@ test("Pi validation errors and incomplete historical results render safely", () 
     assert.match(frame, /Error/);
     assert.doesNotMatch(frame, /✓ Submitted/);
   }
+
   const waiting = tool.renderResult({ content: [], details: {} }, { isPartial: true }, theme, context).render(50).join("\n");
   assert.match(waiting, /Waiting for your response/);
   assert.doesNotMatch(waiting, /Error/);
