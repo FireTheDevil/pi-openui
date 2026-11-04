@@ -1,7 +1,6 @@
 # Anti-slop provenance
 
-Installed from the local `install-anti-slop` skill's `assets/anti-slop/` bundle
-at `/home/alex/.pi/agent/skills/install-anti-slop`.
+Installed from the `install-anti-slop` skill's bundled `assets/anti-slop/` directory.
 The source repository and exact anti-slop source commit are unknown: the supplied
 skill has no Git metadata or top-level provenance record. Do not attribute the
 bundle to the nested Stylistic revision.
