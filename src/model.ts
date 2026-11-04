@@ -160,10 +160,10 @@ export class DocumentModel {
     if (!valueSchemaFor(node)?.safeParse(value).success) return;
     const options = optionItems(node);
     if (options.length) {
-      const next = Array.isArray(value) ? value : [value];
+      const next: unknown[] = Array.isArray(value) ? value : [value];
       if (new Set(next).size !== next.length || next.some(item => !options.some(option => option.value === item))) return;
       const previous = this.fieldValue(node);
-      const before = Array.isArray(previous) ? previous : [previous];
+      const before: unknown[] = Array.isArray(previous) ? previous : [previous];
       if (Array.isArray(value)) {
         if (options.some(option => option.disabled && before.includes(option.value) !== next.includes(option.value))) return;
       } else if (value !== previous && options.some(option => option.disabled && option.value === value)) return;
@@ -177,7 +177,7 @@ export class DocumentModel {
     this.store = stagedStore;
     this.fields = new Map(originalFields);
     try {
-      this.field(node).setValue(Array.isArray(value) ? [...value] : value);
+      this.field(node).setValue(structuredClone(value));
       this.refresh();
       if (!this.valid) { this.fields = originalFields; return; }
       for (const [key, next] of Object.entries(stagedStore.getSnapshot())) {
@@ -245,7 +245,7 @@ export class DocumentModel {
     let ancestor: ElementNode | undefined = this.root;
     for (const index of path) {
       if (!ancestor) break;
-      if ((ancestor.typeName === "Tabs" || ancestor.typeName === "Steps") && fieldOptions(ancestor).disabled) return true;
+      if ((ancestor.typeName === "Tabs" || ancestor.typeName === "Steps" || ancestor.typeName === "Accordion") && fieldOptions(ancestor).disabled) return true;
       ancestor = childNodes(ancestor)[index];
     }
     return false;
@@ -259,7 +259,8 @@ export class DocumentModel {
   private emptyFieldValue(node: ElementNode): FieldValue {
     if (node.typeName === "Checkbox" || node.typeName === "Toggle") return false;
     if (node.typeName === "NumberInput" || node.typeName === "Slider") return 0;
-    if (node.typeName === "MultiSelect") return [];
+    if (node.typeName === "MultiSelect" || node.typeName === "EditableTable") return [];
+    if (node.typeName === "Accordion") return false;
     return "";
   }
 
@@ -428,7 +429,7 @@ export class DocumentModel {
     const visit = (node: ElementNode) => {
       if (isField(node)) {
         const value = this.fieldValue(node);
-        values.set(node.props.name as string, Array.isArray(value) ? [...value] : value);
+        values.set(node.props.name as string, structuredClone(value));
       }
       for (const child of childNodes(node)) visit(child);
     };
@@ -508,6 +509,13 @@ export class DocumentModel {
             if (new Set(selected).size !== selected.length) this.diagnostics.push(`${node.typeName} selections must be unique.`);
             if (!this.streaming && selected.some(value => !options.includes(value as string))) this.diagnostics.push(`${node.typeName} ${props.name} value must be one of its options.`);
           }
+          if (node.typeName === "EditableTable") {
+            const columns = componentSpecs.EditableTable.shape.columns.parse(props.columns);
+            const rows = componentSpecs.EditableTable.shape.value.parse(props.value);
+            const keys = columns.map(column => column.key);
+            if (new Set(keys).size !== keys.length) this.diagnostics.push("EditableTable column keys must be unique.");
+            if (rows.some(row => Object.keys(row).length !== keys.length || columns.some(column => !Object.hasOwn(row, column.key) || typeof row[column.key] !== column.type))) this.diagnostics.push("EditableTable rows must exactly match column keys and types.");
+          }
           if (node.typeName === "Table" && (props.rows as unknown[][]).some((row) => row.length !== (props.columns as string[]).length)) this.diagnostics.push("Table rows must match the number of columns.");
           if (node.typeName === "NumberInput" || node.typeName === "Slider") {
             const settings = fieldOptions(node);
@@ -531,7 +539,7 @@ export class DocumentModel {
             }
             return children;
           };
-          if (["Stack", "Row", "Section", "Card"].includes(node.typeName)) {
+          if (["Stack", "Row", "Section", "Card", "Accordion"].includes(node.typeName)) {
             return { ...node, props: { ...node.props, children: validateChildren(props.children as unknown[]) } };
           }
           if (node.typeName === "Tabs" || node.typeName === "Steps") {

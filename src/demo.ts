@@ -41,6 +41,8 @@ $ratio = 25;
 $date = "2026-11-15";
 $tree = "src";
 $progress = 2;
+$details = false;
+$tasks = [{task: "Review types", hours: 2, ready: true}, {task: "Inspect wrapped terminal content", hours: 3, ready: false}];
 root = Stack([
   Text("Terminal component catalog", {bold: true}),
   Text("Explore four pages. Local edits stay here until you submit.", {tone: "muted"}),
@@ -60,6 +62,7 @@ root = Stack([
           Card("Current plan", [Text("Cards group related content."), Badge("Ready", "success")]),
           Card("Terminal layout", [Text("Rows wrap vertically when space is limited."), Badge("Native TUI", "accent")])
         ], {gap: 2}),
+        Accordion("details", "How disclosure works", [Text("Hidden children keep their values and validation. Enter or Space toggles this explanation.")], $details),
         Divider("Review workflow"),
         Steps("step", [
           {value: "plan", label: "Plan", children: [Text("Choose the scope before reviewing."), Button("Continue to review", @Set($step, "review"))]},
@@ -69,6 +72,7 @@ root = Stack([
       ])
     ]},
     {value: "display", label: "Display", children: [
+      Callout("Illustrative catalog data", "Values in this demo are examples, not measured results.", {tone: "warning", dismissible: true}),
       Markdown("## Readable terminal output\\n**Markdown** preserves emphasis and lists without opening a browser."),
       CodeBlock("const result = await tools.show_ui({ source });\\ntext(result);", "javascript"),
       List(["Local state updates are immediate", "Typed values reach the active Pi session", "Escape cancels without submitting"], true),
@@ -84,10 +88,11 @@ root = Stack([
         Slider("ratio", "Review coverage", $ratio, 0, 100, 5),
         DatePicker("date", "Target date", $date, {minDate: "2026-01-01", maxDate: "2027-12-31"}),
         Tree("tree", "Project files", [{value: "src", label: "src", children: [{value: "model", label: "model.ts"}, {value: "view", label: "view.ts"}]}, {value: "tests", label: "test", children: [{value: "integration", label: "integration.test.ts"}]}, {value: "locked", label: "archived", disabled: true}], $tree)
-      ])
+      ]),
+      EditableTable("tasks", "Illustrative review tasks", [{key: "task", label: "Task", type: "string"}, {key: "hours", label: "Hours", type: "number"}, {key: "ready", label: "Ready", type: "boolean"}], $tasks, {description: "Arrows choose a cell. Enter edits. Valid edits apply locally immediately. Invalid numbers block collection only."})
     ]}
   ], $page),
   Divider(),
-  Button("Reset catalog", @Reset($page, $step, $owner, $priority, $accepted, $checks, $notes, $count, $enabled, $ratio, $date, $tree, $progress)),
+  Button("Reset catalog", @Reset($page, $step, $owner, $priority, $accepted, $checks, $notes, $count, $enabled, $ratio, $date, $tree, $progress, $details, $tasks)),
   Button("Submit catalog", @ToAssistant("Use this review configuration", {owner: $owner, priority: $priority, accepted: $accepted, checks: $checks, notes: $notes, retries: $count, enabled: $enabled, coverage: $ratio, date: $date, file: $tree}), {variant: "primary"})
 ]);`;

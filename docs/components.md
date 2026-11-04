@@ -1,10 +1,10 @@
 # Terminal component catalog
 
-Run `/openui-demo --catalog` to explore all 25 components, or add `--stream` to watch the document arrive. The demo has Forms, Layout, Display and Advanced pages. Complete the required Owner and confirmation fields before submitting. Reset restores the document's defaults.
+Run `/openui-demo --catalog` to explore all 28 components, or add `--stream` to watch the document arrive. The demo has Forms, Layout, Display and Advanced pages. Complete the required Owner and confirmation fields before submitting. Reset restores the document's defaults.
 
 The same component catalog supports three contracts: static inline display, `interaction: "local"` for persistent exploration without an answer, and default/`interaction: "collect"` for a form that waits for input. Local mode is not limited to form fields: Tabs, Tree, local disclosure buttons and reactive text/table combinations work too. Removing a Submit button does not change the default waiting contract. See [local interaction](local-interaction.md) for focus and lifecycle.
 
-Every component is specified through `@openuidev/lang-core` and rendered using Pi's native TUI. Use `root = Stack([...])`. Arguments are positional in the order below; `?` marks an optional argument. The existing six component signatures remain compatible.
+Every component is specified through `@openuidev/lang-core` and rendered using Pi's native TUI. Use `root = Stack([...])`. Arguments are positional in the order below; `?` marks an optional argument. The original 25 component signatures remain compatible.
 
 Local widgets already display `summary.title` in their header (or “Local explorer” by default). Begin the body with useful context or controls, without repeating that title as the first Text or Markdown heading. Keep Section/Card titles and other headings for distinct internal groups. Static displays and collecting forms retain their existing heading behavior.
 
@@ -22,9 +22,10 @@ Local widgets already display `summary.title` in their header (or “Local explo
 | Slider | `Slider(name, label, value, min, max, step?, settings?)` | finite number |
 | DatePicker | `DatePicker(name, label, value, settings?)` | `YYYY-MM-DD` string |
 | Tree | `Tree(name, label, nodes, value, settings?)` | selected node's string value |
+| EditableTable | `EditableTable(name, label, columns, value, settings?)` | array of typed plain records |
 | Button | `Button(label, action, settings?)` | runs an action; not a field |
 
-Names are data keys, not display labels. They match `^[A-Za-z_][A-Za-z0-9_-]{0,63}$` and contain at most 64 characters, for example `deployment_region`. Legacy action identifiers use the same name schema. Names must be unique across the entire document, including inactive pages. Bind each field to a declared `$variable` of the appropriate type. Literal initial values also work. Submitted `values` preserve booleans, numbers and string arrays; they are not converted to strings. `state` contains the declared `$variables` and unbound field state.
+Names are data keys, not display labels. They match `^[A-Za-z_][A-Za-z0-9_-]{0,63}$` and contain at most 64 characters, for example `deployment_region`. Legacy action identifiers use the same name schema. Names must be unique across the entire document, including inactive pages. Bind each field to a declared `$variable` of the appropriate type. Literal initial values also work. Submitted `values` preserve booleans, numbers, string arrays and table records; they are not converted to strings. `state` contains the declared `$variables` and unbound field state.
 
 Common field settings are `{description?, required?, disabled?, error?}`. Descriptions provide help below the label. Required values and explicit error messages block submission while keeping the form editable. Required booleans must be true; required multiple selections must contain at least one value. Disabled fields skip keyboard focus and ignore edits; their values are still returned, and their validation errors do not block submission.
 
@@ -49,6 +50,30 @@ Select and MultiSelect each require 1 through 200 options. Option values must be
 
 Tree nodes use `{value, label, children?, description?, disabled?}` recursively. Values are unique throughout the tree. A disabled parent also disables its descendants. Trees require 1 through 200 root nodes and support at most 200 total nodes and 16 levels. Child arrays may be empty. Expansion is local presentation state; selection is the bound field value.
 
+## Editable tables
+
+`columns` contains 1 through 20 plain records shaped `{key, label, type}`. Each unique `key` follows the field-name syntax. `type` is `string`, `number` or `boolean`. `value` contains at most 200 plain records with exactly those keys and matching cell types. Numbers must be finite. Null cells, extra keys, row insertion, row deletion and helper components are unsupported. String cells have the usual 4,000-character limit. Common field settings apply; `required` rejects an empty table.
+
+```openui
+$tasks = [{task: "Review", hours: 2, ready: false}];
+root = Stack([
+  EditableTable("tasks", "Review tasks", [
+    {key: "task", label: "Task", type: "string"},
+    {key: "hours", label: "Hours", type: "number"},
+    {key: "ready", label: "Ready", type: "boolean"}
+  ], $tasks),
+  Button("Send tasks", @ToAssistant("Use these tasks"))
+]);
+```
+
+Arrows select a cell. Enter or Space starts an edit or toggles a boolean. The native editor stays inside the selected cell, or inside its value region in narrow labeled records. Each valid keystroke applies locally immediately, and booleans toggle immediately. Dependent content uses those typed values before Enter. The editor is single-line; editing multiline string cells replaces line breaks with spaces. Enter exits a valid edit without delaying any update. A cell click starts editing and supports cursor placement. Up and Down select another row without losing invalid text. Left and Right move the caret during editing and select columns otherwise.
+
+Invalid numeric intermediates remain visible in their cells, including inactive cells marked with `!`. They preserve the last valid typed model value and block collection through the view's cached-control validation, even on hidden pages. Other fields, pages, local actions and tables remain usable. Failed collection reveals and scrolls to the first invalid cell in row and column order. Correcting it makes the next invalid cell the target. Direct model access sees only committed typed values, as with NumberInput.
+
+There are no Save or Discard controls or table-specific shortcuts. Edits do not submit or persist data externally. Reset clears cell buffers even when committed values are unchanged. External row, column or binding changes clear index-addressed editors and clamp selection. Rejected model transactions restore the authoritative cell value. Disabled tables clear buffers, and removed tables lose their controls. Escape retains the host contract, cancelling a collect form or returning a local widget to chat.
+
+Tables have vertical column borders and horizontal top, header, row and bottom separators. Narrow terminals show bordered labeled records with row separators instead of squeezing columns. The original `Table` stays read-only and retains its existing rendering.
+
 ## Layout and navigation
 
 | Component | Signature | Behavior |
@@ -60,10 +85,13 @@ Tree nodes use `{value, label, children?, description?, disabled?}` recursively.
 | Divider | `Divider(label?)` | Horizontal separator, optionally labeled |
 | Tabs | `Tabs(name, items, value, settings?)` | Selectable pages with string state |
 | Steps | `Steps(name, items, value, settings?)` | Ordered workflow pages with string state |
+| Accordion | `Accordion(name, label, children, value, settings?)` | Boolean disclosure with component children |
 
 Row settings accept `gap`, an integer from 0 through 8. Section and Card settings accept `description` and `tone`. Tabs and Steps use common field settings. Each requires 1 through 200 items with the shape `{value, label, children}`; values must be unique and the bound value must identify an item.
 
 Only the selected page renders and receives focus. All pages still participate in validation and submitted values. A hidden required field can therefore block submission; the view opens its page and focuses the field so the user can correct it. A disabled Tabs or Steps group also disables all its descendants: they cannot receive focus, edits or button activations, and their validation does not block submission. Their values are still returned. Local actions outside the group can update or reset its state. Navigation also works through local actions such as `@Set($page, "advanced")` or `@Reset($step)`.
+
+Accordion uses common field settings and a boolean value. Chevrons show disclosure state. Expanded children use tree rails and branch connectors. Enter or Space toggles it. Left closes it and Right opens it. Clicking its heading toggles it. Collapsed children retain values and drafts, participate in validation and submission, and leave the focus cycle. Failed submission opens every enclosing disclosure and page before focusing the invalid field. Disabled Accordion groups also disable their descendants. Disclosure values appear in structured results but are omitted from automatic receipts.
 
 ## Display
 
@@ -76,10 +104,13 @@ Only the selected page renders and receives focus. All pages still participate i
 | Badge | `Badge(text, tone?)` | Compact status label; accent tone by default |
 | Progress | `Progress(value, max?, label?)` | Progress from zero through max; max defaults to 100 |
 | Table | `Table(columns, rows)` | Read-only table; scalar cells and equal column counts |
+| Callout | `Callout(title, text, settings?)` | Semantic notice with optional local dismissal |
 
 Text-bearing strings contain at most 4,000 characters, including labels, text, code, placeholders, descriptions, errors, option/page/tree values, string field values, list items and table string cells. Names have their separate restriction. Tables require 1 through 20 columns and allow at most 200 rows. Lists allow at most 200 items. Progress `max` must be strictly positive when supplied and defaults to 100.
 
 Tones are `default`, `muted`, `accent`, `success`, `warning` and `error`. Text settings are `{tone?, bold?, italic?}`. Colors come from Pi's active theme. Markdown and code stay in the terminal; no browser, React or webview is involved.
+
+Callout settings accept `tone` and `dismissible`. A padded box surrounds the heading, body and optional dismissal control. The border uses the theme tone, and the heading names the tone as well as using its color. Without `dismissible: true`, a Callout is display-only. With it, **Dismiss notice** is a keyboard and mouse control. Dismissal is local presentation state. It does not set a variable, validate a field, submit an answer or dismiss another notice. A new view starts with its notices visible.
 
 Display properties may depend on state. For example, `Text("Retries: " + $retries)`, `Progress($done, 5, "Checks")` and `Table(["Enabled"], [[$enabled]])` update immediately when their dependencies change.
 
@@ -100,6 +131,9 @@ Tab and Shift+Tab move between enabled controls on the visible page. In collect 
 | Tree | Up/Down moves; Right expands or enters a child; Left collapses or moves to a parent; Space/Enter selects |
 | Tabs / Steps | Left/Right changes the selected page; Home/End chooses the first/last page; Enter, Down or Tab advances focus |
 | Button | Enter or Space activates |
+| Accordion | Enter or Space toggles; Left closes; Right opens |
+| Callout | Enter or Space activates its explicit dismissal control |
+| EditableTable | Arrows select; Enter edits or exits a valid edit; Space edits or toggles; valid edits apply immediately |
 
 Click controls to focus them; click a list option to select it, a checkbox to toggle it, or a button to activate it. Input and TextArea clicks place the text cursor. Tree disclosure markers expand or collapse branches; labels select nodes. Wheel input over a choice list moves its active option; Select also selects that option, while MultiSelect requires Space or a click to toggle it. Elsewhere the wheel scrolls the panel. Hit targets follow resizing, nested layouts and viewport scrolling.
 

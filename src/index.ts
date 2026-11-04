@@ -30,7 +30,10 @@ const outcomeSchema = Type.Union([
     message: Type.Optional(Type.String()),
     context: Type.Optional(Type.Unknown()),
     state: Type.Record(Type.String(), Type.Unknown()),
-    values: Type.Record(Type.String(), Type.Union([Type.String(), Type.Boolean(), Type.Number(), Type.Array(Type.String())])),
+    values: Type.Record(Type.String(), Type.Union([
+      Type.String(), Type.Boolean(), Type.Number(), Type.Array(Type.String()),
+      Type.Array(Type.Record(Type.String(), Type.Union([Type.String(), Type.Boolean(), Type.Number()]))),
+    ])),
   }),
   Type.Object({ status: Type.Literal("cancelled") }),
   Type.Object({ status: Type.Literal("displayed") }),
