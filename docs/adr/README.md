@@ -22,6 +22,9 @@ ADRs 0001–0007 were reconstructed from project history and the implementation.
 - [0006: Use native schema formats at each integration boundary](0006-schema-boundaries.md)
 - [0007: Keep conversion integration optional](0007-optional-conversion-adapter.md)
 
+- [0008: Keep editable table drafts separate from committed answers](0008-editable-table-drafts.md). Superseded by 0009.
+- [0009: Apply editable table cells immediately](0009-editable-table-immediate-edits.md)
+
 ## Related policies
 
 - [Versioning](../versioning.md): the convention applies after `0.7.0`, without implying historical consistency.

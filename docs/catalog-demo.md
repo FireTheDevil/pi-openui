@@ -1,6 +1,8 @@
 # Component catalog in the actual Pi CLI
 
-Run `/openui-demo --catalog` in Pi 1.4+ to explore all 25 terminal components. Add `--stream` to preview the same document incrementally. The [component reference](components.md) documents every signature, setting and key binding.
+Run `/openui-demo --catalog` in Pi 1.4+ to explore all 28 terminal components. Add `--stream` to preview the same document incrementally. The [component reference](components.md) documents every signature, setting and key binding.
+
+The current demo adds Accordion on Layout, Callout on Display, and EditableTable after the typed controls on Advanced. Valid table edits apply locally on each keystroke. Invalid numeric text stays visible and blocks submission, while other controls and pages remain usable. The [validation history](validation-history.md) records evidence for these additions separately. The screenshots below predate the additions and show the original 25 components.
 
 These captures came from real Pi 1.4.0 fullscreen sessions in a Linux PTY on Node 24. Both dark and light runs passed keyboard and mouse editing, validation, local actions, resizing, streaming, cancellation and submission through native code mode. A deterministic local provider received the results; external model providers were not tested. The screenshot harness replayed unmodified terminal output. It is separate from the extension, which has no browser dependency.
 

@@ -1,7 +1,7 @@
 import { Text, truncateToWidth, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { ElementNode } from "@openuidev/lang-core";
-import { childNodes, isField, optionItems, type FieldValue } from "./catalog.js";
+import { childNodes, isField, optionItems, tableRowsSchema, type FieldValue } from "./catalog.js";
 import type { DocumentModel } from "./model.js";
 import { presentation, safeText, type HostTheme, type PresentationStyle } from "./presentation.js";
 import type { UIResult } from "./view.js";
@@ -26,7 +26,8 @@ export function isSummaryOutcome(value: unknown): value is SummaryOutcome {
   if (value.status !== "submitted" || typeof value.action !== "string" || !record(value.state) || !record(value.values)
     || value.message !== undefined && typeof value.message !== "string") return false;
   return Object.values(value.values).every(item => typeof item === "string" || typeof item === "boolean"
-    || typeof item === "number" && Number.isFinite(item) || Array.isArray(item) && item.every(part => typeof part === "string"));
+    || typeof item === "number" && Number.isFinite(item) || Array.isArray(item) && item.every(part => typeof part === "string")
+    || tableRowsSchema.safeParse(item).success);
 }
 
 export function isReceipt(value: unknown): value is Receipt {
@@ -53,7 +54,8 @@ function fieldLabel(name: string, node?: ElementNode): string {
 function fieldText(value: FieldValue, node?: ElementNode): string {
   const labels = new Map(node ? optionItems(node).map(option => [option.value, option.label]) : []);
   const optionLabel = (item: string) => safeText(labels.get(item) ?? item);
-  if (Array.isArray(value)) return value.length ? value.map(optionLabel).join(", ") : "None";
+  if (node?.typeName === "EditableTable") return JSON.stringify(value);
+  if (Array.isArray(value)) return value.length ? value.map(item => typeof item === "string" ? optionLabel(item) : JSON.stringify(item)).join(", ") : "None";
   if (typeof value === "boolean") return value ? "Yes" : "No";
   return typeof value === "string" ? optionLabel(value) : String(value);
 }
@@ -70,7 +72,7 @@ export function createReceipt(outcome: SummaryOutcome, model?: DocumentModel, op
   const visit = (node: ElementNode): void => {
     if (isField(node)) {
       const name = String(node.props.name);
-      if (node.typeName === "Tabs" || node.typeName === "Steps") navigation.add(name);
+      if (node.typeName === "Tabs" || node.typeName === "Steps" || node.typeName === "Accordion") navigation.add(name);
       else fields.set(name, node);
     }
     for (const child of childNodes(node)) visit(child);

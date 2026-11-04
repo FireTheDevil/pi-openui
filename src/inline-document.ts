@@ -20,7 +20,7 @@ export function isInlineDocument(value: unknown): value is InlineDocument {
 
 /** Even hidden/disabled fields and page navigation need an interactive surface. */
 export function hasInteractiveContent(model: DocumentModel): boolean {
-  const visit = (node: NonNullable<DocumentModel["root"]>): boolean => isField(node) || node.typeName === "Button" || childNodes(node).some(visit);
+  const visit = (node: NonNullable<DocumentModel["root"]>): boolean => isField(node) || node.typeName === "Button" || node.typeName === "Callout" && (node.props.settings as { dismissible?: boolean } | undefined)?.dismissible === true || childNodes(node).some(visit);
   return !!model.root && visit(model.root);
 }
 

@@ -7,6 +7,7 @@ import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import type { ActionSubmission, DocumentModel } from "./model.js";
 import { childNodes, fieldOptions, isField, isElement, optionItems, type TabItem } from "./catalog.js";
 import { createFieldControl, type FieldControl } from "./controls.js";
+import { EditableTableControl } from "./editable-table.js";
 import { renderDisplay } from "./displays.js";
 import { localActionError } from "./local-policy.js";
 import { presentation, safeText, type HostTheme, type PresentationStyle } from "./presentation.js";
@@ -32,7 +33,7 @@ export interface ViewOptions {
   interaction?: "local";
   onBlur?(): void;
 }
-type PageAncestor = { key: string; value: string };
+type PageAncestor = { key: string; value: string | boolean };
 type Control = { key: string; node: ElementNode; widget?: FieldControl; pages: PageAncestor[] };
 type Hit = { key: string; part: "label" | "widget" | "button" | "page"; x: number; y: number; width: number; height: number; value?: string };
 type MouseHit = Hit & { top: number; bottom: number };
@@ -84,6 +85,7 @@ const pad = (line: string, width: number) => truncateToWidth(line, width, "") + 
 export class OpenUIView implements Component, Focusable {
   focused = true;
   private controls: Control[] = [];
+  private dismissedCallouts = new Set<string>();
   private cache = new Map<string, Control>();
   private focusIndex = 0;
   private offset = 0;
@@ -119,11 +121,11 @@ export class OpenUIView implements Component, Focusable {
     const seen = new Set<string>();
     const visit = (node: ElementNode, path: string, visible: boolean, pages: PageAncestor[]) => {
       const key = keyOf(node, path);
-      if (isField(node) || node.typeName === "Button") {
+      if (isField(node) || node.typeName === "Button" || node.typeName === "Callout" && (node.props.settings as { dismissible?: boolean } | undefined)?.dismissible && !this.dismissedCallouts.has(key)) {
         let control = this.cache.get(key);
         if (!control) {
           control = { key, node, pages };
-          if (isField(node) && !navigation(node)) control.widget = createFieldControl(node, this.model, this.style);
+          if (isField(node) && !navigation(node) && node.typeName !== "Accordion") control.widget = createFieldControl(node, this.model, this.style);
           this.cache.set(key, control);
         }
         control.node = node;
@@ -133,7 +135,9 @@ export class OpenUIView implements Component, Focusable {
         seen.add(key);
         if (visible && !this.model.isDisabled(node)) next.push(control);
       }
-      if (navigation(node)) {
+      if (node.typeName === "Accordion") {
+        childNodes(node).forEach((child, i) => visit(child, `${path}.${i}`, visible && this.model.fieldValue(node) === true, [...pages, { key, value: true }]));
+      } else if (navigation(node)) {
         let index = 0;
         for (const page of (node.props.items as TabItem[] ?? [])) {
           for (const child of page.children.filter(isElement)) {
@@ -178,12 +182,23 @@ export class OpenUIView implements Component, Focusable {
         this.refresh();
       }
     }
+    if (control.widget instanceof EditableTableControl) control.widget.focusInvalidCell();
     const index = this.controls.findIndex(item => item.key === control.key);
     if (index >= 0) this.focusIndex = index;
     this.followFocus = true;
   }
   private activateButton(control: Control): void {
     if (this.closed || this.activating || this.model.streaming || !this.model.valid || this.model.isDisabled(control.node)) return;
+    if (control.node.typeName === "Accordion") {
+      this.model.setField(control.node, !this.model.fieldValue(control.node));
+      this.refresh();
+      return;
+    }
+    if (control.node.typeName === "Callout") {
+      this.dismissedCallouts.add(control.key);
+      this.refresh();
+      return;
+    }
     this.activating = true;
     this.actionError = undefined;
     try {
@@ -254,7 +269,12 @@ export class OpenUIView implements Component, Focusable {
     }
     if (!control || this.model.isDisabled(control.node)) return;
     this.followFocus = true;
-    if (control.node.typeName === "Button") {
+    if (["Button", "Accordion", "Callout"].includes(control.node.typeName)) {
+      if (control.node.typeName === "Accordion" && (matchesKey(data, "left") || matchesKey(data, "right"))) {
+        this.model.setField(control.node, matchesKey(data, "right"));
+        this.refresh();
+        return;
+      }
       if (matchesKey(data, "enter") || matchesKey(data, "space")) this.activateButton(control);
       else if (matchesKey(data, "up") || matchesKey(data, "down")) this.moveFocus(matchesKey(data, "down") ? 1 : -1);
     } else if (navigation(control.node)) {
@@ -475,10 +495,66 @@ export class OpenUIView implements Component, Focusable {
     }
     const key = keyOf(node, path);
     const control = this.cache.get(key);
+    if (node.typeName === "Callout") {
+      if (this.dismissedCallouts.has(key)) return result;
+      const settings = p.settings as { tone?: string; dismissible?: boolean } | undefined;
+      const color = tone(settings?.tone, "accent");
+      const labels: Record<string, string> = { default: "Notice", muted: "Note", accent: "Notice", success: "Success", warning: "Warning", error: "Error" };
+      const heading = `${labels[settings?.tone ?? "default"]} · ${safeText(p.title)}`;
+      const framed = width >= 4;
+      const inset = width >= 6 ? 1 : 0;
+      const inner = Math.max(1, width - (framed ? 2 : 0));
+      const content = Math.max(1, inner - inset * 2);
+      const x = (framed ? 1 : 0) + inset;
+      const body = block();
+      body.lines.push(...this.text(heading, content, color, true), "", ...this.text(p.text, content));
+      if (settings?.dismissible && control) {
+        const active = this.controls[this.focusIndex]?.key === key && this.focused;
+        body.lines.push("");
+        body.positions.set(key, body.lines.length); body.labels.set(key, 0);
+        const dismiss = this.text(`${active ? "> " : "  "}[ Dismiss notice ]`, content, active ? "accent" : color);
+        dismiss.forEach(line => {
+          const label = safeText(line).replace(/^>/, " ").trimEnd();
+          const left = visibleWidth(label) - visibleWidth(label.trimStart());
+          const width = visibleWidth(label.trimStart());
+
+          if (width) body.hits.push({ key, part: "button", x: left, y: body.lines.length, width, height: 1 });
+          body.lines.push(line);
+        });
+      }
+      if (framed) result.lines.push(this.style.fg(color, "┌" + "─".repeat(inner) + "┐"));
+      this.append(result, body, x, result.lines.length + 1);
+      for (const line of ["", ...body.lines, ""]) result.lines.push((framed ? this.style.fg(color, "│") : "") + " ".repeat(inset) + pad(line, content) + " ".repeat(inset) + (framed ? this.style.fg(color, "│") : ""));
+      if (framed) result.lines.push(this.style.fg(color, "└" + "─".repeat(inner) + "┘"));
+      return result;
+    }
     if (!control) return result;
     const active = this.controls[this.focusIndex]?.key === key && this.focused && !this.model.streaming && this.model.valid && !this.model.isDisabled(node);
     const enabled = !this.model.streaming && this.model.valid && !this.model.isDisabled(node);
     result.positions.set(key, 0); result.labels.set(key, 0);
+    if (node.typeName === "Accordion") {
+      const open = this.model.fieldValue(node) === true;
+      const heading = this.text(`${active ? "> " : "  "}${open ? "▾" : "▸"} ${safeText(p.label)}`, width, !enabled ? "dim" : active ? "accent" : "text", true);
+      result.lines.push(...heading);
+      result.hits.push({ key, part: "button", x: 0, y: 0, width, height: heading.length });
+      if (fieldOptions(node).description) result.lines.push(...this.text(fieldOptions(node).description, width, "muted"));
+      const error = this.model.fieldError(node);
+      if (error) result.lines.push(...this.text(error, width, "error"));
+      if (open) {
+        const inset = Math.min(5, Math.max(0, width - 1));
+        if (children.length && inset) result.lines.push(this.style.fg("borderMuted", inset >= 3 ? "  │" : "│"));
+        for (const [index, child] of children.entries()) {
+          const last = index === children.length - 1;
+          const body = this.renderNode(child.node, child.path, Math.max(1, width - inset));
+          const branch = inset >= 3 ? (last ? "  └─ " : "  ├─ ") : inset ? (last ? "└" : "├") + "─".repeat(inset - 1) : "";
+          const rail = inset >= 3 ? (last ? "     " : "  │  ") : inset ? (last ? " " : "│") + " ".repeat(inset - 1) : "";
+          this.append(result, body, inset);
+          result.lines.push(...body.lines.map((line, row) => this.style.fg("borderMuted", truncateToWidth(row ? rail : branch, inset, "")) + line));
+          if (!last) result.lines.push(this.style.fg("borderMuted", inset >= 3 ? "  │" : inset ? "│" : ""));
+        }
+      }
+      return result;
+    }
     if (navigation(node)) {
       let line = "", currentY = 0;
       for (const [index, page] of (p.items as TabItem[]).entries()) {
@@ -618,7 +694,7 @@ export class OpenUIView implements Component, Focusable {
     const heading = clippedTitle + (rule ? "  " + this.style.fg("borderMuted", "─".repeat(rule)) : "") + (toggleLabel ? " " + this.style.fg("muted", toggleLabel) : "");
     if (toggleLabel && headingRows) this.surfaceToggle = { x: contentLeft + visibleWidth(heading) - visibleWidth(toggleLabel), y: 0, width: visibleWidth(toggleLabel) };
     const kind = this.controls[this.focusIndex]?.node.typeName;
-    const actions: Record<string, string> = { Input: "type to edit", NumberInput: "type or ↑↓", Select: "↑↓ choose · Enter next", MultiSelect: "↑↓ move · Space toggle", Checkbox: "Space toggle", Toggle: "Space toggle", TextArea: "Enter newline · Ctrl+Enter next", Slider: "←→ adjust", DatePicker: "arrows choose · PgUp/PgDn month", Tree: "↑↓ move · ←→ expand · Enter select", Tabs: "←→ page · Enter next", Steps: "←→ step · Enter next", Button: "Enter/Space activate" };
+    const actions: Record<string, string> = { Accordion: "Enter/Space toggle · ← close · → open", Callout: "Enter/Space dismiss", EditableTable: "arrows · Enter edit/exit · edits apply locally", Input: "type to edit", NumberInput: "type or ↑↓", Select: "↑↓ choose · Enter next", MultiSelect: "↑↓ move · Space toggle", Checkbox: "Space toggle", Toggle: "Space toggle", TextArea: "Enter newline · Ctrl+Enter next", Slider: "←→ adjust", DatePicker: "arrows choose · PgUp/PgDn month", Tree: "↑↓ move · ←→ expand · Enter select", Tabs: "←→ page · Enter next", Steps: "←→ step · Enter next", Button: "Enter/Space activate" };
     const actionHint = kind ? actions[kind] ?? "Enter activate" : "PgUp/PgDn scroll";
     const expandHint = this.options.onToggleExpanded ? ` · F2 ${this.surface === "fullscreen" ? "collapse" : "expand"}` : "";
     const fullHint = `Tab/Shift+Tab focus · ${actionHint}${expandHint} · Esc cancel${overflow && kind ? " · PgUp/PgDn scroll" : ""}`;

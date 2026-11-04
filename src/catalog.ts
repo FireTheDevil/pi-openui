@@ -6,7 +6,8 @@ export const limits = {
   columns: 20, options: 200, actionSteps: 32, treeNodes: 200, treeDepth: 16,
 } as const;
 
-export type FieldValue = string | boolean | number | string[];
+export type TableRow = Record<string, string | number | boolean>;
+export type FieldValue = string | boolean | number | string[] | TableRow[];
 export type Tone = "default" | "muted" | "accent" | "success" | "warning" | "error";
 export interface FieldOptions {
   description?: string;
@@ -51,7 +52,10 @@ const stringBinding = z.string().max(limits.text);
 const booleanBinding = z.boolean();
 const numberBinding = z.number().finite();
 const multipleBinding = z.array(text).max(limits.options);
-for (const schema of [stringBinding, booleanBinding, numberBinding, multipleBinding]) markReactive(schema);
+export const tableRowsSchema = z.array(z.record(name, z.union([text, finite, z.boolean()]))).max(limits.rows);
+export const tableColumnsSchema = z.array(z.object({ key: name, label: text, type: z.enum(["string", "number", "boolean"]) })).min(collectionMin).max(limits.columns);
+export type TableColumn = z.infer<typeof tableColumnsSchema>[number];
+for (const schema of [stringBinding, booleanBinding, numberBinding, multipleBinding, tableRowsSchema]) markReactive(schema);
 
 // Zod's lazy schema exports as a recursive JSON Schema reference. The model
 // applies total-node and depth limits before accepting the tree for rendering.
@@ -66,6 +70,9 @@ const pages = z.array(z.object({ value: text, label: text, children })).min(coll
 
 /** Property order is the public positional OpenUI Lang signature. */
 export const componentSpecs = {
+  Accordion: z.object({ name, label: text, children, value: booleanBinding, settings: settings.optional() }),
+  Callout: z.object({ title: text, text, settings: z.object({ tone: tone.optional(), dismissible: z.boolean().optional() }).optional() }),
+  EditableTable: z.object({ name, label: text, columns: tableColumnsSchema, value: tableRowsSchema, settings: settings.optional() }),
   Text: z.object({ text, settings: z.object({ tone: tone.optional(), bold: z.boolean().optional(), italic: z.boolean().optional() }).optional() }),
   Stack: z.object({ children }),
   Select: z.object({ name, label: text, options, value: stringBinding, settings: settings.optional() }),
@@ -95,6 +102,9 @@ export const componentSpecs = {
 export type ComponentName = keyof typeof componentSpecs;
 
 export const descriptions: Record<ComponentName, string> = {
+  Accordion: "Boolean disclosure with component children. Enter/Space toggles, Left closes, Right opens. Hidden children retain values and validate; errors reveal them. Disabled disclosure disables descendants.",
+  Callout: "Semantic notice with title and text. Optional settings.tone and dismissible. Dismissal is explicit, local to this view, and never submits or sets state.",
+  EditableTable: "Edit up to 200 plain records using 1–20 columns {key,label,type}, where type is string, number or boolean. Keys are unique and rows have exactly those typed keys. Bind value to a record-array $variable. Enter edits a selected cell. Valid text and number edits apply locally on each keystroke; booleans toggle immediately. Invalid numeric text stays visible, preserves the last typed value and blocks collection only. Other controls and pages remain usable. Enter exits a valid edit, not a delayed commit. No row insertion/deletion, null cells, helpers or external persistence.",
   Text: "Plain terminal text with optional semantic tone, bold, and italic styling. Reactive expressions are evaluated before rendering.",
   Stack: "Vertical component layout. Children can use any supplied component or nested layout.",
   Select: `Single-choice list. Provide ${collectionMin} through ${limits.options} options, as strings or {value,label,description?,disabled?}. Bind value to a declared string $variable.`,
@@ -148,6 +158,7 @@ export const systemPrompt = library.prompt({
     "Use optional styling settings sparingly: Text tone/bold/italic; Button variant primary/secondary/danger; Section/Card tone/description; Row gap. Tones are default, muted, accent, success, warning, or error. Badge defaults to accent.",
     "Button actions support @Set($variable, value), @Reset($variable, ...), @ToAssistant(message, context?), and ordered Action([...]) with at most 32 steps. Set/Reset are local updates. In collect mode, @ToAssistant submits current fields/state and closes the form; use at most one, last in the plan. Local mode rejects ToAssistant and legacy string submissions even on hidden/conditional paths; Action may contain only Set/Reset, and dynamic unprovable action sources are rejected.",
     "Declare every @Set/@Reset target with $variable = default before using it. Reset requires at least one target. All steps commit together only if the resulting UI remains valid; otherwise state is unchanged. Legacy Button(label, \"submit\") is supported only in collect mode. Query, Mutation, @Run, @OpenUrl, custom actions, URLs, scripts and external tools are unsupported.",
+    "Accordion(name,label,children,value,settings?) binds a boolean disclosure; all hidden children still validate and submit. Callout(title,text,settings?) is a semantic notice; only dismissible:true adds a local dismissal control. EditableTable(name,label,columns,value,settings?) binds an array of plain records with exactly the unique column keys and matching string/number/boolean types. Valid cell edits apply locally immediately, without submission or persistence. Invalid numeric text remains editable and blocks collection, not other controls or navigation. There are no Save/Discard controls. Use no helper components. Existing Table remains read-only.",
     "Table rows contain strings, numbers, booleans or null and match the column count. Numeric ranges must have min <= max and positive steps. Dates and date bounds use valid YYYY-MM-DD calendar dates. Keep documents compact for a terminal.",
     "In collect mode Escape/Ctrl+C closes the form and returns status cancelled normally; the caller resumes without notebook restart. Only submitted contains user choices. Do not treat defaults as answers or reopen a cancelled form. Local mode returns mounted once and never forwards edits on blur, close or later chat; continue independently authorized work without waiting for a later result. F6 transfers focus between chat and a local widget, Shift+F6 cycles widgets, F2 expands/collapses its inline height, and Escape/Ctrl+C returns to chat. /openui-focus [id] selects a widget; /openui-close [id] dismisses it without sending values. Local widgets mount from completed source only; explicit collect streaming previews remain read-only until valid.",
     "Hide/Restore are host presentation controls, not generated OpenUI actions. Hide retains live values, drafts, tabs/steps, scroll and expanded height in a one-line placeholder; Restore resumes and focuses the same widget. Hidden widgets leave the status hint and F6/Shift+F6 cycle. /openui-hide [id] hides a visible widget; /openui-restore [id] restores the most recently hidden widget when no id is supplied. Close permanently disposes a visible or hidden widget. Hide/Restore sends no values and invokes no tool/model call.",
@@ -165,7 +176,7 @@ export function isElement(value: unknown): value is ElementNode {
   return !!value && typeof value === "object" && (value as ElementNode).type === "element";
 }
 
-const fieldNames = new Set<string>(["Input", "Select", "Checkbox", "MultiSelect", "TextArea", "Tabs", "Steps", "NumberInput", "Toggle", "Slider", "DatePicker", "Tree"]);
+const fieldNames = new Set<string>(["Input", "Select", "Checkbox", "MultiSelect", "TextArea", "Tabs", "Steps", "NumberInput", "Toggle", "Slider", "DatePicker", "Tree", "Accordion", "EditableTable"]);
 export function isField(node: ElementNode): boolean { return fieldNames.has(node.typeName); }
 
 export function fieldOptions(node: ElementNode): FieldOptions {
@@ -180,7 +191,7 @@ export function valueSchemaFor(node: ElementNode): z.ZodType | undefined {
 
 /** All direct children, including inactive pages; validation must cover every page. */
 export function childNodes(node: ElementNode): ElementNode[] {
-  if (["Stack", "Row", "Section", "Card"].includes(node.typeName)) {
+  if (["Stack", "Row", "Section", "Card", "Accordion"].includes(node.typeName)) {
     return Array.isArray(node.props.children) ? node.props.children.filter(isElement) : [];
   }
   if (node.typeName === "Tabs" || node.typeName === "Steps") {

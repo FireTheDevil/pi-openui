@@ -7,6 +7,7 @@ import type { ElementNode } from "@openuidev/lang-core";
 import { fieldOptions, limits, optionItems, type FieldValue, type NormalizedOption, type TreeNode } from "./catalog.js";
 import type { DocumentModel } from "./model.js";
 import { safeText } from "./presentation.js";
+import { EditableTableControl } from "./editable-table.js";
 
 export interface ControlStyle {
   fg(color: ThemeColor, text: string): string;
@@ -282,20 +283,20 @@ class MultiControl extends BaseControl {
   constructor(node: ElementNode, model: DocumentModel, style: ControlStyle) {
     super(node, model, style);
     this.items = optionItems(node);
-    this.cursor = Math.max(0, this.items.findIndex(item => Array.isArray(this.value) && this.value.includes(item.value)));
+    this.cursor = Math.max(0, this.items.findIndex(item => Array.isArray(this.value) && this.value.some(value => value === item.value)));
   }
   update(node: ElementNode): void { super.update(node); this.items = optionItems(node); this.cursor = clamp(this.cursor, 0, Math.max(0, this.items.length - 1)); }
   private toggle(index: number): boolean {
     const item = this.items[index];
     if (!item || item.disabled) return false;
-    const selected = Array.isArray(this.value) ? [...this.value] : [];
+    const selected = Array.isArray(this.value) ? this.value.filter((value): value is string => typeof value === "string") : [];
     return this.commit(selected.includes(item.value) ? selected.filter(value => value !== item.value) : [...selected, item.value]);
   }
   render(width: number, focused: boolean): string[] {
     if (!this.start(width, focused)) return [];
     this.startIndex = clamp(this.cursor - 3, 0, Math.max(0, this.items.length - 7));
     this.row = this.cursor - this.startIndex;
-    const selected = Array.isArray(this.value) ? this.value : [];
+    const selected = Array.isArray(this.value) ? this.value.filter((value): value is string => typeof value === "string") : [];
     const lines = this.items.slice(this.startIndex, this.startIndex + 7).map((item, index) => {
       const active = this.cursor === index + this.startIndex;
       const line = `${active && this.focused ? "> " : "  "}[${selected.includes(item.value) ? "x" : " "}] ${label(item.label)}`;
@@ -626,6 +627,7 @@ class TreeControl extends BaseControl {
 
 export function createFieldControl(node: ElementNode, model: DocumentModel, style: ControlStyle): FieldControl {
   switch (node.typeName) {
+    case "EditableTable": return new EditableTableControl(node, model, style);
     case "Input": return new StringControl(node, model, style);
     case "NumberInput": return new NumberControl(node, model, style);
     case "Select": return new SelectControl(node, model, style);
