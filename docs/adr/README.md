@@ -24,6 +24,7 @@ ADRs 0001–0007 were reconstructed from project history and the implementation.
 
 - [0008: Keep editable table drafts separate from committed answers](0008-editable-table-drafts.md). Superseded by 0009.
 - [0009: Apply editable table cells immediately](0009-editable-table-immediate-edits.md)
+- [0010: Precompute the model prompt](0010-precomputed-model-prompt.md)
 
 ## Related policies
 

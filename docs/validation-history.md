@@ -2,6 +2,16 @@
 
 Recorded release checks and their scope. These results do not guarantee behavior with every model or environment.
 
+## Precomputed model prompt (2026-11-05)
+
+On Linux with Node 24.22.1, npm 12.2.1, Pi/TUI development dependencies 1.4.0 and lang-core 1.0.2, baseline and post-change lint, type checking and all 241 existing tests passed without skips. No unit tests, dependencies or package versions changed. [ADR 0010](adr/0010-precomputed-model-prompt.md) records the generation boundary.
+
+Temporary probes confirmed byte-identical prompt exports (25,135 characters, SHA-256 `a6c2e7f8022e73a9036c9f080796e57eeb109de9244ea6dbd86dee8f406971d0`), identical public catalog runtime export keys, deterministic generation, read-only stale/missing rejection, stale rejection through lint, and generation with the artifact absent. Importing the production catalog, model and extension with `library.prompt` replaced by a throwing function succeeded. An npm pack dry run included the generated artifact and required TypeScript source files.
+
+Nine fresh subprocesses per mode before and after used tsx for catalog imports and installed Pi 1.5.0's actual extension loader for the full extension, with a fresh isolated agent directory each time. Median catalog import was 79.30 ms before and 77.66 ms after; median extension discovery/loading was 187.14 ms before and 188.27 ms after. Median whole loader-process wall time was 539.69 ms before and 539.81 ms after. These sequential, warm-filesystem measurements overlap in range and do **not** demonstrate an overall startup speedup. A separate 100-call warm prompt-generation probe measured a 0.165 ms median; a first-call sample was 1.38 ms. Library construction and other runtime imports remain eager.
+
+Scripts, raw measurements and check logs are retained locally in `/tmp/pi-openui-prompt/`; the implementation report is `/tmp/pi-openui-prompt-implementation.md`. These are automated and loader-level checks, not a new interactive CLI session, physical-terminal check, external model evaluation or full compatibility matrix. Earlier startup measurements with personal extensions are not used as controlled before/after evidence here.
+
 ## 0.8.0 strict lint cleanup (2026-11-05)
 
 On Linux with Node 24.22.1, npm 12.2.1, Pi and TUI development dependencies 1.4.0, and lang-core 1.0.2, independent review approved the completed cleanup with no blocking findings. `npm run lint` reported zero errors and warnings, `npm run typecheck` passed, and all 241 existing tests passed without skips. Every configured lint rule remained enabled. Existing test names and assertion counts were preserved; no unit tests were added.
