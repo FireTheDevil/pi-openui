@@ -26,11 +26,22 @@ Keep `oxlint` and `@oxlint/plugins` pinned to the same version. See the
 [plugin provenance](../tools/oxlint/anti-slop/UPSTREAM.md) before updating the rules.
 The 0.8.0 source cleanup passes every configured lint rule without exceptions.
 
+Lint also runs `npm run check:prompt`, a read-only freshness check for the committed
+`src/generated/prompt.ts`. After editing catalog schemas, prompt guidance or relevant
+dependencies, run `npm run generate:prompt` and commit the regenerated artifact with
+the source changes. Do not edit the artifact by hand. The generator uses
+`src/catalog-source.ts` directly and works even when the artifact is missing.
+Production imports use the precomputed strings without calling `library.prompt`;
+this does not defer catalog construction or compile the package. See
+[ADR 0010](adr/0010-precomputed-model-prompt.md).
+
 ## Module ownership
 
 | File | Responsibility |
 | --- | --- |
-| `src/catalog.ts` | Zod component specifications and generated model prompt |
+| `src/catalog.ts` | Public catalog exports and precomputed prompt exports |
+| `src/catalog-source.ts` | Authoritative Zod component specifications, library and prompt builder |
+| `src/generated/prompt.ts` | Committed model prompt; regenerate with `npm run generate:prompt` |
 | `src/model.ts` | Parsing, evaluation, typed state, validation, and action dispatch |
 | `src/view.ts` | Layout composition, focus, and pointer routing |
 | `src/controls.ts`, `src/displays.ts`, `src/presentation.ts` | Widgets, content, and theme handling |
