@@ -176,7 +176,7 @@ export function renderDisplay(node: RenderedNode, width: number, style: Presenta
     }
 
     case "BarChart":
-      lines = renderBarChart(componentSpecs.BarChart.shape.data.parse(p.data), width, style);
+      lines = renderBarChart(componentSpecs.BarChart.shape.data.parse(p.data), width, style, componentSpecs.BarChart.shape.settings.parse(p.settings ?? undefined));
       break;
     case "Table":
       lines = renderTable(componentSpecs.Table.shape.columns.parse(p.columns), componentSpecs.Table.shape.rows.parse(p.rows), width, style);
@@ -187,7 +187,7 @@ export function renderDisplay(node: RenderedNode, width: number, style: Presenta
   return lines.map(line => truncateToWidth(line, width, ""));
 }
 
-function renderBarChart(data: BarChartData, width: number, style: PresentationStyle): string[] {
+function renderBarChart(data: BarChartData, width: number, style: PresentationStyle, settings: z.infer<typeof componentSpecs.BarChart>["settings"]): string[] {
   if (!data.length) return wrap(style.fg("muted", "(no data)"), width);
 
   const rows = data.map(({ label, value }) => {
@@ -196,10 +196,12 @@ function renderBarChart(data: BarChartData, width: number, style: PresentationSt
     return { label: visibleWidth(sanitized.trim()) ? sanitized : "(unnamed)", value, number: String(value) };
   });
 
+  if (settings?.orientation === "vertical") return renderVerticalBarChart(rows, width, style);
+
   const widestLabel = Math.max(...rows.map(row => visibleWidth(row.label)));
   const labelWidth = Math.min(widestLabel, 24, Math.floor(width / 3));
   const valueWidth = Math.max(...rows.map(row => visibleWidth(row.number)));
-  const barWidth = width - labelWidth - valueWidth - 4;
+  const barWidth = Math.min(32, width - labelWidth - valueWidth - 4);
 
   if (widestLabel > labelWidth || barWidth < 4) {
     return rows.flatMap(row => wrap(style.fg("text", row.label + ": " + row.number), width));
@@ -215,6 +217,43 @@ function renderBarChart(data: BarChartData, width: number, style: PresentationSt
       + style.fg("accent", "█".repeat(filled)) + " ".repeat(barWidth - filled)
       + " " + style.fg("text", " ".repeat(valueWidth - visibleWidth(row.number)) + row.number);
   });
+}
+
+function renderVerticalBarChart(rows: (BarChartData[number] & { number: string })[], width: number, style: PresentationStyle): string[] {
+  const slotWidth = Math.min(Math.floor((width - 2 - (rows.length - 1)) / rows.length),
+    Math.max(3, ...rows.map(row => Math.max(visibleWidth(row.label), visibleWidth(row.number)))));
+
+  if (slotWidth < 3 || rows.some(row => visibleWidth(row.label) > slotWidth || visibleWidth(row.number) > slotWidth)
+    || ["█", "│", "└", "─"].some(glyph => visibleWidth(glyph) !== 1)) {
+    return rows.flatMap(row => wrap(style.fg("text", row.label + ": " + row.number), width));
+  }
+
+  const plotRows = 8;
+  const maximum = Math.max(...rows.map(row => row.value));
+  const heights = rows.map(row => maximum === 0 ? 0 : Math.round(plotRows * (row.value / maximum)));
+  const barWidth = Math.min(3, slotWidth);
+
+  const center = (text: string) => {
+    const padding = slotWidth - visibleWidth(text);
+    const left = Math.floor(padding / 2);
+
+    return " ".repeat(left) + text + " ".repeat(padding - left);
+  };
+
+  const lines: string[] = [];
+
+  for (let row = plotRows; row > 0; row--) {
+    lines.push(style.fg("borderMuted", "│ ") + heights.map(height => height >= row
+      ? style.fg("accent", center("█".repeat(barWidth))) : " ".repeat(slotWidth)).join(" "));
+  }
+
+  const plotWidth = rows.length * slotWidth + rows.length - 1;
+
+  lines.push(style.fg("borderMuted", "└─" + "─".repeat(plotWidth)));
+  lines.push("  " + rows.map(row => style.fg("text", center(row.label))).join(" "));
+  lines.push("  " + rows.map(row => style.fg("text", center(row.number))).join(" "));
+
+  return lines;
 }
 
 /** Existing content-fit terminal table, shared by the display dispatcher. */

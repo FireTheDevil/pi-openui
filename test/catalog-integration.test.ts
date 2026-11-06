@@ -137,9 +137,11 @@ test("catalog navigates layouts and edits all field types before submitting thei
   assert.equal(h.model.formValues.step, "done");
   h.click("Display");
   assert.match(h.lines().join("\n"), /javascript/);
+  h.key("\t"); h.key("\t");
   h.click("Advance progress");
   assert.equal(h.model.state.$progress, 3);
   assert.match(h.lines().join("\n"), /60%/);
+  h.key("\t"); h.key("\t");
   h.click("Submit catalog");
   await pending;
   assert.equal(h.closed, 1);

@@ -110,7 +110,7 @@ Use a `Stack` root and declared state variables of the appropriate type for form
 
 Submission continues the current agent turn without injecting a duplicate user message. Escape or Ctrl+C closes the form and returns `{"status":"cancelled"}` as a normal tool result. The caller resumes and decides what to do next; the extension does not abort the run, terminate a cell or restart the notebook. Invalid documents return an error with diagnostics. RPC, JSON and print modes return an explicit unsupported-mode error.
 
-Use inline displays for tables, explanations and code excerpts that need no acknowledgement. Use `presentation: "fullscreen"` for an explicitly requested expanded view or dense inspection. In a fullscreen display-only document, Enter closes the view and leaves the content inline; Escape returns a cancelled result. Only the catalog's horizontal BarChart is supported; fullscreen does not add other charts or Mermaid. See [inline presentation and cancellation](docs/inline-ui.md).
+Use inline displays for tables, explanations and code excerpts that need no acknowledgement. Use `presentation: "fullscreen"` for an explicitly requested expanded view or dense inspection. In a fullscreen display-only document, Enter closes the view and leaves the content inline; Escape returns a cancelled result. The catalog's BarChart supports horizontal and vertical bars; fullscreen does not add other chart types or Mermaid. See [inline presentation and cancellation](docs/inline-ui.md).
 
 Use local widgets for calculators, comparisons, Tabs, Trees and expandable explanations when no result is needed by the agent. F6 transfers focus between chat and the widget; Shift+F6 cycles widgets. F2 or the header control expands/collapses a local widget within the transcript. Escape/Ctrl+C returns focus to chat, while `/openui-close [id]` dismisses one. Edits, expansion, reset, blur, later chat and dismissal never send values to the model or start a tool. Only Set/Reset actions and local sequences are accepted. Widgets keep independent live state across turns; reopening or replaying a session restores original defaults, visible and compact, rather than edited values or presentation state. See [local interaction, lifecycle and the hosting explorer](docs/local-interaction.md).
 
@@ -171,7 +171,7 @@ The third-party Code/Notebook Mode in `@howaboua/pi-codex-conversion` 4.0.7 expo
 
 OpenUI Lang accepts host-defined component libraries. These are terminal-specific schemas, not drop-in replacements for the differently shaped components in OpenUI's web libraries.
 
-The catalog is defined with Zod schemas supplied to lang-core. It covers terminal forms, layouts, navigation and structured output; it does not implement every component in OpenUI's separate web libraries. BarChart compares one finite, nonnegative series with horizontal bars and exact values. Other charts, media, rich document editing and browser-specific interactions remain outside this catalog.
+The catalog is defined with Zod schemas supplied to lang-core. It covers terminal forms, layouts, navigation and structured output; it does not implement every component in OpenUI's separate web libraries. `BarChart(data, settings?)` compares one finite, nonnegative series with exact values. Bars are horizontal by default; `{orientation: "vertical"}` selects eight-row vertical bars. Both orientations size themselves compactly instead of stretching across wide terminals. Other charts, media, rich document editing and browser-specific interactions remain outside this catalog.
 
 ## Appearance
 

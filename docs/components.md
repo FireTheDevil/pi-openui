@@ -103,7 +103,7 @@ Accordion uses common field settings and a boolean value. Chevrons show disclosu
 | List | `List(items, ordered?)` | String items with bullets or numbering |
 | Badge | `Badge(text, tone?)` | Compact status label; accent tone by default |
 | Progress | `Progress(value, max?, label?)` | Progress from zero through max; max defaults to 100 |
-| BarChart | `BarChart(data)` | Display-only horizontal bars for ordered `{label, value}` records |
+| BarChart | `BarChart(data, settings?)` | Display-only horizontal or vertical bars for ordered `{label, value}` records |
 | Table | `Table(columns, rows)` | Read-only table; scalar cells and equal column counts |
 | Callout | `Callout(title, text, settings?)` | Semantic notice with optional local dismissal |
 
@@ -111,12 +111,16 @@ Text-bearing strings contain at most 4,000 characters, including labels, text, c
 
 BarChart accepts zero through 200 records with string labels and finite, nonnegative values. Duplicate and empty labels are valid; empty labels display as `(unnamed)`. Labels are sanitized and newlines become spaces. Input order is preserved. Empty data displays `(no data)`. Bars share a zero baseline and the current dataset's maximum. All-zero data has no filled bars. Small positives can round to zero cells; exact JavaScript `String(value)` numbers remain visible. Negative and nonfinite values produce diagnostics, not clamped bars.
 
-Label, bar and value columns stay separate. If complete labels do not fit or fewer than four bar cells remain, the chart wraps complete `label: value` records instead. Titles and units belong in surrounding Text. There are no chart settings, orientation options, controls or submitted chart values. Separate charts do not share a scale. Reactive data updates and rescales locally; replay restores source defaults, not edits.
+`settings` accepts `{orientation?: "horizontal" | "vertical"}`. Omitted settings or orientation preserves horizontal bars. Charts stay left-aligned and use only the width they need. In horizontal mode, label, bar and value columns stay separate, and the plotting area uses at most 32 terminal cells. If complete labels do not fit or fewer than four bar cells remain, the chart wraps complete `label: value` records instead.
+
+Vertical mode uses eight plot rows, a common zero baseline, one category row and one exact-value row. Equal category slots have one cell between them and a two-cell axis area. Each slot uses the larger of three cells, the widest complete sanitized label and the widest exact number, capped by the available slot width. Bars are up to three cells wide and centered within each slot. Heights are `round(8 * (value / maximum))`, with no filled cells for all-zero data and no artificial minimum for small positives. Every complete label and number must fit a slot at least three cells wide; otherwise the chart uses the same wrapped records without truncating category identities.
+
+Titles and units belong in surrounding Text. There are no chart controls, actions or submitted chart values. Separate charts do not share a scale. Reactive data updates and rescales locally; replay restores source defaults, not edits.
 
 ```openui
 root = Stack([
 	Text("Illustrative requests by service"),
-	BarChart([{label: "API", value: 120}, {label: "Worker", value: 75}, {label: "Scheduler", value: 0}])
+	BarChart([{label: "API", value: 120}, {label: "Worker", value: 75}, {label: "Scheduler", value: 0}], {orientation: "vertical"})
 ])
 ```
 

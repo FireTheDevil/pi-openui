@@ -80,6 +80,7 @@ root = Stack([
       Progress($progress, 5, "Checklist complete"),
       Text("Illustrative checklist comparison, items"),
       BarChart([{label: "Complete", value: $progress}, {label: "Remaining", value: 5 - $progress}]),
+      BarChart([{label: "Complete", value: $progress}, {label: "Remaining", value: 5 - $progress}], {orientation: "vertical"}),
       Button("Advance progress", @Set($progress, $progress < 5 ? $progress + 1 : 0)),
       Table(["Field", "Current value", "Type"], [["Owner", $owner, "string"], ["Retries", $count, "number"], ["Enabled", $enabled, "boolean"], ["Selected checks", $checks.length, "array length"], ["Date", $date, "ISO date"]])
     ]},
