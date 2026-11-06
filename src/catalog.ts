@@ -123,7 +123,7 @@ export const componentSpecs = {
   List: z.object({ items: z.array(text).max(limits.rows), ordered: z.boolean().optional() }),
   Badge: z.object({ text, tone: tone.optional() }),
   Progress: z.object({ value: finite.min(0), max: finite.positive().optional(), label: text.optional() }),
-  BarChart: z.object({ data: z.array(z.object({ label: text, value: finite.min(0) })).max(limits.rows), settings: z.object({ orientation: z.enum(["horizontal", "vertical"]).optional() }).optional() }),
+  BarChart: z.object({ data: z.array(z.object({ label: text, value: finite })).max(limits.rows), settings: z.object({ orientation: z.enum(["horizontal", "vertical"]).optional(), min: finite.max(0).optional(), max: finite.positive().optional() }).optional() }),
   NumberInput: z.object({ name, label: text, value: numberBinding, settings: numberSettings.optional() }),
   Toggle: z.object({ name, label: text, value: booleanBinding, settings: settings.optional() }),
   Slider: z.object({ name, label: text, value: numberBinding, min: finite, max: finite, step: finite.positive().optional(), settings: settings.optional() }),
@@ -132,6 +132,17 @@ export const componentSpecs = {
 };
 
 export type BarChartData = z.infer<typeof componentSpecs.BarChart>["data"];
+
+export function resolveBarChartDomain(data: BarChartData, settings: z.infer<typeof componentSpecs.BarChart>["settings"]) {
+  const minimum = settings?.min;
+  const maximum = settings?.max;
+
+  if (minimum !== undefined && data.some(row => row.value < minimum)) throw new Error("BarChart data values must not fall below settings.min.");
+
+  if (maximum !== undefined && data.some(row => row.value > maximum)) throw new Error("BarChart data values must not exceed settings.max.");
+
+  return { min: settings?.min ?? Math.min(0, ...data.map(row => row.value)), max: settings?.max ?? Math.max(0, ...data.map(row => row.value)) };
+}
 
 export type ComponentName = keyof typeof componentSpecs;
 
@@ -159,7 +170,7 @@ export const descriptions: Record<ComponentName, string> = {
   List: `List of at most ${limits.rows} strings. Set ordered to true for numbered items.`,
   Badge: "Compact text label with an optional semantic tone; the default tone is accent.",
   Progress: "Numeric progress indicator. max must be strictly positive when supplied and defaults to 100; value ranges from zero through max. Optional label describes the measurement.",
-  BarChart: `Display-only comparison of at most ${limits.rows} ordered {label,value} records. Values must be finite and nonnegative. Empty data is valid. Bars share an automatic zero baseline and maximum; exact numbers remain visible, including tiny positives. Duplicate and empty labels are allowed. Narrow layouts wrap complete label: value records. Put titles and units in surrounding Text. Optional settings.orientation is horizontal (default) or vertical. Both orientations size themselves compactly and stay left-aligned. Vertical uses eight plot rows with complete category labels and exact numbers below a common zero baseline, falling back to wrapped records if they cannot fit. No chart actions.`,
+  BarChart: `Display-only comparison of at most ${limits.rows} ordered {label,value} records. Values must be finite signed numbers. Empty data is valid. Bars share an explicit zero axis, with negatives left or down and positives right or up. Optional settings.min is finite and nonpositive, at most every value; min:0 prohibits negative edits. Optional settings.max is a finite positive upper bound at least every value, not a magnitude limit; violations are rejected, never clamped or auto-expanded. Omitted min uses min(0,values); omitted max uses max(0,values). Explicit bounds never expand. Use {min:-500,max:500} for a fixed signed range. Match control bounds for reactive charts and use the same explicit bounds for comparable charts. This sets numeric scale, not cell width. A wrapped Scale caption states the actual range, including 0..0 for all-zero automatic data. Bars use integer-cell quantization; exact numbers remain visible, including tiny signed values. Duplicate and empty labels are allowed. Narrow layouts wrap complete label: value records. Put titles and units in surrounding Text. Optional settings.orientation is horizontal (default) or vertical. Both orientations automatically size from allocated child width and category count and stay left-aligned without filling all space. Horizontal bars stay one row high. Vertical plot height and column thickness grow with plot width, not root viewport height. Labels wrap to at most two rows with exact numbers separate, falling back to complete records when crowded. Expand or scroll overflowing documents and widgets to inspect all content. No chart actions.`,
   NumberInput: "Finite numeric input. Optional settings.min/max constrain range and settings.step controls increment size.",
   Toggle: "Boolean on/off control. Its value can bind to a declared boolean $variable.",
   Slider: "Finite numeric control with explicit min/max, optional positive step, and optional common field settings.",

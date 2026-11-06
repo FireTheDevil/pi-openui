@@ -4,7 +4,7 @@ import { predicateParseContext } from "./predicate-validation.js";
 import { highlightCode } from "@earendil-works/pi-coding-agent";
 import type { ThemeColor } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text, truncateToWidth, visibleWidth, wrapTextWithAnsi, type MarkdownTheme } from "@earendil-works/pi-tui";
-import { componentSpecs } from "./catalog.js";
+import { componentSpecs, resolveBarChartDomain } from "./catalog.js";
 import { safeText, type PresentationStyle } from "./presentation.js";
 
 const displayNames = new Set(["Text", "Markdown", "CodeBlock", "List", "Badge", "Progress", "BarChart", "Divider", "Table"]);
@@ -187,8 +187,23 @@ export function renderDisplay(node: RenderedNode, width: number, style: Presenta
   return lines.map(line => truncateToWidth(line, width, ""));
 }
 
+function barChartCoordinate(value: number, domain: ReturnType<typeof resolveBarChartDomain>, extent: number): number {
+  if (domain.min === 0) return domain.max === 0 ? 0 : Math.round(extent * (value / domain.max));
+
+  // Normalize endpoints before adding to avoid overflow across finite extremes.
+  const magnitude = Math.max(Math.abs(domain.min), domain.max);
+  const below = -domain.min / magnitude;
+  const above = domain.max / magnitude;
+
+  return Math.round(extent * ((value / magnitude + below) / (below + above)));
+}
+
 function renderBarChart(data: BarChartData, width: number, style: PresentationStyle, settings: z.infer<typeof componentSpecs.BarChart>["settings"]): string[] {
-  if (!data.length) return wrap(style.fg("muted", "(no data)"), width);
+  const domain = resolveBarChartDomain(data, settings);
+  const caption = data.length || settings?.min !== undefined || settings?.max !== undefined ? wrap(style.fg("muted", "Scale: " + domain.min + ".." + domain.max), width) : [];
+  const numericWidth = Math.max(settings?.min === undefined ? 0 : visibleWidth(String(settings.min)), settings?.max === undefined ? 0 : visibleWidth(String(settings.max)));
+
+  if (!data.length) return [...caption, ...wrap(style.fg("muted", "(no data)"), width)];
 
   const rows = data.map(({ label, value }) => {
     const sanitized = safeText(label).replace(/\n/g, " ");
@@ -196,42 +211,61 @@ function renderBarChart(data: BarChartData, width: number, style: PresentationSt
     return { label: visibleWidth(sanitized.trim()) ? sanitized : "(unnamed)", value, number: String(value) };
   });
 
-  if (settings?.orientation === "vertical") return renderVerticalBarChart(rows, width, style);
-
   const widestLabel = Math.max(...rows.map(row => visibleWidth(row.label)));
-  const labelWidth = Math.min(widestLabel, 24, Math.floor(width / 3));
-  const valueWidth = Math.max(...rows.map(row => visibleWidth(row.number)));
-  const barWidth = Math.min(32, width - labelWidth - valueWidth - 4);
+  const valueWidth = Math.max(3, numericWidth, ...rows.map(row => visibleWidth(row.number)));
+  const fraction = Math.min(0.88, 0.48 + 0.12 * Math.log2(rows.length + 1));
 
-  if (widestLabel > labelWidth || barWidth < 4) {
-    return rows.flatMap(row => wrap(style.fg("text", row.label + ": " + row.number), width));
+  const targetWidth = Math.min(width, Math.max(Math.floor(width * fraction), valueWidth + 8,
+    Math.min(widestLabel + valueWidth + 8, Math.floor(width * 0.88))));
+
+  if (settings?.orientation === "vertical") return [...caption, ...renderVerticalBarChart(rows, width, style, domain, valueWidth, targetWidth)];
+
+  const inlineLabels = widestLabel <= Math.floor(targetWidth * 0.28);
+  const labelWidth = inlineLabels ? widestLabel : 0;
+  const barWidth = targetWidth - labelWidth - valueWidth - (inlineLabels ? 4 : 1);
+  const labels = rows.map(row => inlineLabels ? [] : wrap(row.label, targetWidth));
+
+  if (barWidth < 4 || labels.some(parts => parts.length > 2)) {
+    return [...caption, ...rows.flatMap(row => wrap(style.fg("text", row.label + ": " + row.number), width))];
   }
 
-  const maximum = Math.max(...rows.map(row => row.value));
+  const extent = barWidth - (domain.min < 0 ? 1 : 0);
+  const zero = barChartCoordinate(0, domain, extent);
 
-  return rows.map(row => {
-    const filled = maximum === 0 ? 0 : Math.round((row.value / maximum) * barWidth);
+  return [...caption, ...rows.flatMap((row, index) => {
+    const coordinate = barChartCoordinate(row.value, domain, extent);
+    const start = Math.min(zero, coordinate);
+    const end = Math.max(zero, coordinate);
+    const negative = domain.min < 0 ? " ".repeat(start) + style.fg("accent", "█".repeat(zero - start)) : "";
+    const positive = style.fg("accent", "█".repeat(end - zero)) + " ".repeat(extent - end);
 
-    return style.fg("text", row.label + " ".repeat(labelWidth - visibleWidth(row.label)))
-      + style.fg("borderMuted", " │ ")
-      + style.fg("accent", "█".repeat(filled)) + " ".repeat(barWidth - filled)
-      + " " + style.fg("text", " ".repeat(valueWidth - visibleWidth(row.number)) + row.number);
-  });
+    const lead = inlineLabels ? style.fg("text", row.label + " ".repeat(labelWidth - visibleWidth(row.label)))
+      + style.fg("borderMuted", " │ ") : "";
+
+    return [...labels[index].map(line => style.fg("text", line)), lead
+      + negative + (domain.min < 0 ? style.fg("borderMuted", "│") : "") + positive
+      + " " + style.fg("text", " ".repeat(valueWidth - visibleWidth(row.number)) + row.number)];
+  })];
 }
 
-function renderVerticalBarChart(rows: (BarChartData[number] & { number: string })[], width: number, style: PresentationStyle): string[] {
-  const slotWidth = Math.min(Math.floor((width - 2 - (rows.length - 1)) / rows.length),
-    Math.max(3, ...rows.map(row => Math.max(visibleWidth(row.label), visibleWidth(row.number)))));
+function renderVerticalBarChart(rows: (BarChartData[number] & { number: string })[], width: number, style: PresentationStyle, domain: ReturnType<typeof resolveBarChartDomain>, numericWidth: number, targetWidth: number): string[] {
+  const gap = Math.max(1, Math.floor(Math.sqrt(targetWidth / rows.length) / 3));
+  const slotWidth = Math.floor((targetWidth - 2 - gap * (rows.length - 1)) / rows.length);
 
-  if (slotWidth < 3 || rows.some(row => visibleWidth(row.label) > slotWidth || visibleWidth(row.number) > slotWidth)
-    || ["█", "│", "└", "─"].some(glyph => visibleWidth(glyph) !== 1)) {
+  if (slotWidth < Math.max(2, numericWidth) || ["█", "│", "└", "─"].some(glyph => visibleWidth(glyph) !== 1)) {
     return rows.flatMap(row => wrap(style.fg("text", row.label + ": " + row.number), width));
   }
 
-  const plotRows = 8;
-  const maximum = Math.max(...rows.map(row => row.value));
-  const heights = rows.map(row => maximum === 0 ? 0 : Math.round(plotRows * (row.value / maximum)));
-  const barWidth = Math.min(3, slotWidth);
+  const labels = rows.map(row => wrap(row.label, slotWidth).map(line => line.trimEnd()));
+  const labelRows = Math.max(...labels.map(parts => parts.length));
+
+  if (labelRows > 2) return rows.flatMap(row => wrap(style.fg("text", row.label + ": " + row.number), width));
+
+  const plotWidth = rows.length * slotWidth + gap * (rows.length - 1);
+  const plotRows = Math.max(1, Math.round(plotWidth / 5));
+  const coordinates = rows.map(row => barChartCoordinate(row.value, domain, plotRows));
+  const zero = barChartCoordinate(0, domain, plotRows);
+  const barWidth = Math.max(1, Math.min(plotRows, Math.floor(slotWidth * 0.7)));
 
   const center = (text: string) => {
     const padding = slotWidth - visibleWidth(text);
@@ -242,16 +276,20 @@ function renderVerticalBarChart(rows: (BarChartData[number] & { number: string }
 
   const lines: string[] = [];
 
-  for (let row = plotRows; row > 0; row--) {
-    lines.push(style.fg("borderMuted", "│ ") + heights.map(height => height >= row
-      ? style.fg("accent", center("█".repeat(barWidth))) : " ".repeat(slotWidth)).join(" "));
+  for (let row = plotRows; row >= 0; row--) {
+    if (row === zero) lines.push(style.fg("borderMuted", (zero === 0 ? "└─" : "├─") + "─".repeat(plotWidth)));
+
+    if (row === 0) break;
+
+    lines.push(style.fg("borderMuted", "│ ") + coordinates.map(coordinate => row > Math.min(zero, coordinate) && row <= Math.max(zero, coordinate)
+      ? style.fg("accent", center("█".repeat(barWidth))) : " ".repeat(slotWidth)).join(" ".repeat(gap)));
   }
 
-  const plotWidth = rows.length * slotWidth + rows.length - 1;
+  for (let row = 0; row < labelRows; row++) {
+    lines.push("  " + labels.map(parts => style.fg("text", center(parts[row] ?? ""))).join(" ".repeat(gap)));
+  }
 
-  lines.push(style.fg("borderMuted", "└─" + "─".repeat(plotWidth)));
-  lines.push("  " + rows.map(row => style.fg("text", center(row.label))).join(" "));
-  lines.push("  " + rows.map(row => style.fg("text", center(row.number))).join(" "));
+  lines.push("  " + rows.map(row => style.fg("text", center(row.number))).join(" ".repeat(gap)));
 
   return lines;
 }

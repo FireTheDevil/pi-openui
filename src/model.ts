@@ -8,7 +8,7 @@ import { z } from "zod";
 import { predicateParseContext } from "./predicate-validation.js";
 import { isActionAST } from "./action-ast.js";
 import {
-  componentSpecs, library, limits, isElement, isField, childNodes, optionItems, fieldOptions, valueSchemaFor,
+  componentSpecs, resolveBarChartDomain, library, limits, isElement, isField, childNodes, optionItems, fieldOptions, valueSchemaFor,
   type FieldValue,
 } from "./catalog.js";
 
@@ -735,6 +735,11 @@ export class DocumentModel {
             if (new Set(selected).size !== selected.length) this.diagnostics.push(`${node.typeName} selections must be unique.`);
 
             if (!this.streaming && selected.some(value => !options.some(option => option === value || Object.is(option, value)))) this.diagnostics.push(`${node.typeName} ${props.name} value must be one of its options.`);
+          }
+
+          if (node.typeName === "BarChart") {
+            const chart = componentSpecs.BarChart.parse(props);
+            resolveBarChartDomain(chart.data, chart.settings);
           }
 
           if (node.typeName === "EditableTable") {

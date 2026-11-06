@@ -16,7 +16,7 @@ Choose components by user intent, not novelty:
 | Need | Supported representation |
 | --- | --- |
 | Structured data or comparisons across several attributes | Table |
-| Compare one nonnegative numeric series | BarChart; exact values stay visible, with automatic rescaling on local updates |
+| Compare one signed numeric series | BarChart; exact values stay visible, with optional fixed numeric bounds for local updates |
 | Distinct items with related attributes | Card, optionally grouped in Row |
 | Several required inputs | A collect-mode form with typed fields; use a conversational question when that suffices |
 | Explore a numeric range | Slider, with visible dependent values; NumberInput for exact values |
@@ -24,7 +24,15 @@ Choose components by user intent, not novelty:
 | Explore an explanation, process, or hierarchy | Accordion for optional detail, Tabs for related perspectives, Steps for stages, or Tree for a hierarchy |
 | Explain conclusions, reasoning, or simple answers | Natural language and Markdown; Text or Markdown inside a widget when useful |
 
-Use `BarChart(data, settings?)` for one ordered series of `{label, value}` records with finite, nonnegative values. It is display-only, allows empty data and duplicate or empty labels, and shares an automatic zero baseline and maximum. Exact numbers remain visible even when tiny positives round to zero bar cells. Put titles and units in surrounding Text. Narrow layouts wrap complete label/value records. Bars are horizontal by default, including omitted settings or orientation. Use `{orientation: "vertical"}` for eight-row vertical bars with complete labels and exact values below the baseline. Both orientations stay left-aligned and size themselves compactly instead of stretching across wide terminals. Crowded vertical charts also fall back to wrapped records. There are no chart actions. Use Table for multiple attributes. Other charts, geographic maps, and interactive diagrams are not supported components. For geographic or system relationships, use clear prose or a supported hierarchy only when it represents the information accurately. Use another available, appropriate tool when the task actually requires another chart type, a map, or a diagram; never invent an OpenUI component.
+Use `BarChart(data, settings?)` for one ordered series of `{label, value}` records with finite signed values. It is display-only, allows empty data and duplicate or empty labels, and shares an explicit zero axis. Negatives extend left or down, positives right or up. Omitted bounds use `min(0, values)` and `max(0, values)`. Negative-only automatic data ends at zero.
+
+For reactive exploration, match explicit chart bounds to control bounds. Pair `Slider("n", "Change", $n, -200, 200, 1)` with `BarChart([{label: "Change", value: $n}], {min: -200, max: 200})`. A supplied `min` must be finite, nonpositive and at most every value. `min: 0` prohibits negative edits. A supplied `max` must be finite, positive and at least every value. It is an upper bound, not a magnitude limit. Invalid edits roll back, never clamp or expand explicit bounds. Use the same explicit bounds for comparable charts; do not claim a shared scale when bounds are omitted. Matching numeric ranges alone do not imply matching terminal geometry.
+
+The domain sets numeric scale, not cell width. A wrapped `Scale` caption shows the actual range, including `0..0` for all-zero automatic data, and remains on fallback. Empty automatic data shows `(no data)`; empty fixed data also shows its range. Bars use integer-cell quantization. Exact numbers remain visible even when tiny signed values round to zero bar cells.
+
+Put titles and units in surrounding Text. Narrow layouts wrap complete label/value records. Bars are horizontal by default, including omitted settings or orientation. Use `{orientation: "vertical"}` for vertical bars with complete labels and exact values below the entire plot. Both orientations stay left-aligned and size automatically from allocated child width and category count, without filling all space. Horizontal bars stay one row high. Vertical height and column thickness grow with plot width. Labels wrap to at most two rows before complete-record fallback. Expand static documents or expand and scroll local widgets when larger charts overflow their collapsed view. There are no chart actions.
+
+Use Table for multiple attributes. Other charts, geographic maps, and interactive diagrams are not supported components. For geographic or system relationships, use clear prose or a supported hierarchy only when it represents the information accurately. Use another available, appropriate tool when the task actually requires another chart type, a map, or a diagram; never invent an OpenUI component.
 
 1. Prefer the simplest representation that solves the task. Avoid decorative or redundant widgets.
 2. Give every interactive control a meaningful action. Keep its state consistent with displayed values and calculations.
