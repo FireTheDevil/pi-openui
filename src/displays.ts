@@ -1,4 +1,4 @@
-import type { RenderedNode } from "./catalog.js";
+import type { BarChartData, RenderedNode } from "./catalog.js";
 import { z } from "zod";
 import { predicateParseContext } from "./predicate-validation.js";
 import { highlightCode } from "@earendil-works/pi-coding-agent";
@@ -7,7 +7,7 @@ import { Markdown, Text, truncateToWidth, visibleWidth, wrapTextWithAnsi, type M
 import { componentSpecs } from "./catalog.js";
 import { safeText, type PresentationStyle } from "./presentation.js";
 
-const displayNames = new Set(["Text", "Markdown", "CodeBlock", "List", "Badge", "Progress", "Divider", "Table"]);
+const displayNames = new Set(["Text", "Markdown", "CodeBlock", "List", "Badge", "Progress", "BarChart", "Divider", "Table"]);
 
 const tones = new Map<string, ThemeColor>([
   ["default", "text"], ["muted", "muted"], ["accent", "accent"], ["success", "success"], ["warning", "warning"], ["error", "error"],
@@ -175,6 +175,9 @@ export function renderDisplay(node: RenderedNode, width: number, style: Presenta
       break;
     }
 
+    case "BarChart":
+      lines = renderBarChart(componentSpecs.BarChart.shape.data.parse(p.data), width, style);
+      break;
     case "Table":
       lines = renderTable(componentSpecs.Table.shape.columns.parse(p.columns), componentSpecs.Table.shape.rows.parse(p.rows), width, style);
       break;
@@ -182,6 +185,36 @@ export function renderDisplay(node: RenderedNode, width: number, style: Presenta
   }
 
   return lines.map(line => truncateToWidth(line, width, ""));
+}
+
+function renderBarChart(data: BarChartData, width: number, style: PresentationStyle): string[] {
+  if (!data.length) return wrap(style.fg("muted", "(no data)"), width);
+
+  const rows = data.map(({ label, value }) => {
+    const sanitized = safeText(label).replace(/\n/g, " ");
+
+    return { label: visibleWidth(sanitized.trim()) ? sanitized : "(unnamed)", value, number: String(value) };
+  });
+
+  const widestLabel = Math.max(...rows.map(row => visibleWidth(row.label)));
+  const labelWidth = Math.min(widestLabel, 24, Math.floor(width / 3));
+  const valueWidth = Math.max(...rows.map(row => visibleWidth(row.number)));
+  const barWidth = width - labelWidth - valueWidth - 4;
+
+  if (widestLabel > labelWidth || barWidth < 4) {
+    return rows.flatMap(row => wrap(style.fg("text", row.label + ": " + row.number), width));
+  }
+
+  const maximum = Math.max(...rows.map(row => row.value));
+
+  return rows.map(row => {
+    const filled = maximum === 0 ? 0 : Math.round((row.value / maximum) * barWidth);
+
+    return style.fg("text", row.label + " ".repeat(labelWidth - visibleWidth(row.label)))
+      + style.fg("borderMuted", " │ ")
+      + style.fg("accent", "█".repeat(filled)) + " ".repeat(barWidth - filled)
+      + " " + style.fg("text", " ".repeat(valueWidth - visibleWidth(row.number)) + row.number);
+  });
 }
 
 /** Existing content-fit terminal table, shared by the display dispatcher. */

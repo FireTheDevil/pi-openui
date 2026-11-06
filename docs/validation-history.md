@@ -2,6 +2,18 @@
 
 Recorded release checks and their scope. These results do not guarantee behavior with every model or environment.
 
+## Native horizontal BarChart (2026-11-06)
+
+On Linux with Node 24.22.1, Pi and TUI development dependencies 1.4.0, and lang-core 1.0.2, `npm run lint`, `npm run typecheck`, and all 241 existing tests passed without skips. The existing catalog fixture and count assertion now include the 29th component. No unit tests were added.
+
+A temporary native runtime probe passed 648 direct chart frames across widths 0 through 80. It also exercised static transcript rendering, local reactive rendering and nested Card/Row layouts at every width in that range. Cases covered empty and all-zero data, duplicate and empty labels, Unicode, terminal-control sanitization, complete long-label fallback, tiny positives, finite extremes, invalid data diagnostics, the 200-entry limit, rejected invalid transactions and original replay defaults. Ratios are calculated before multiplication; small positive values retain exact numeric text even when their bars round to zero cells.
+
+An actual Pi 1.5.0 fullscreen-terminal CLI run used a fresh isolated agent directory, an empty installed-package list and a deterministic provider. Static `show_ui` returned `displayed`. Local `show_ui` returned `mounted` without values. Slider input changed the proposed value from 60 to 75 without another tool result. Tab moved directly to Reset, which restored 60. Reload restored the original slider default of 4. Resizing exercised 42, 18 and 100 columns. Negative and overflow-to-infinity inputs returned diagnostics. Both `/openui-demo --catalog` and `--catalog --stream` rendered the chart on the Display page; Advance progress changed its complete/remaining values from 2/3 to 3/2. The owned tmux session was stopped.
+
+Rerunnable local tooling and evidence are retained in `/tmp/pi-openui-bar-chart/`, outside the repository and package. The final CLI capture directory is `cli-1793907470929662913`. The runtime probe is `probe.mts`; the actual-CLI driver and provider are `cli.py` and `fixture.mjs`. Earlier driver attempts had viewport and streaming-readiness assumptions corrected before the final passing run.
+
+This is deterministic runtime and CLI evidence, not external-model evaluation. The CLI check loaded the working checkout explicitly; it did not test tarball installation, optional conversion adapters, light-theme CLI rendering, physical-terminal glyph support or performance. At widths smaller than a wide grapheme, Pi's existing wrapping and clipping cannot display that grapheme in full. Width bounds still passed. Earlier release records retain their original scope.
+
 ## 0.8.0 strict lint cleanup (2026-11-05)
 
 On Linux with Node 24.22.1, npm 12.2.1, Pi and TUI development dependencies 1.4.0, and lang-core 1.0.2, independent review approved the completed cleanup with no blocking findings. `npm run lint` reported zero errors and warnings, `npm run typecheck` passed, and all 241 existing tests passed without skips. Every configured lint rule remained enabled. Existing test names and assertion counts were preserved; no unit tests were added.

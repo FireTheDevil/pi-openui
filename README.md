@@ -65,7 +65,7 @@ Add `--fullscreen` to an answer-collecting demo to start expanded, or press F2 w
 
 Run `/openui-demo --local` for the hosting-cost explorer or `/openui-demo --local-tabs` for a tabbed explanation with local disclosure. These return immediately, remain interactive in the conversation and keep chat available. Use F6 to move between chat and a widget, then F2 or its header control to expand/collapse within the transcript. The local demos do not accept `--stream` or `--fullscreen`.
 
-Run `/openui-demo --catalog` to explore all **25 components** across Forms, Layout, Display and Advanced pages. Try the calendar, tree, multiline editor, workflow buttons and typed fields. Complete the required fields, then submit the result to Pi. See the [component reference](docs/components.md) and [actual Pi screenshots](docs/catalog-demo.md). This demo also accepts `--stream`.
+Run `/openui-demo --catalog` to explore all **29 components** across Forms, Layout, Display and Advanced pages. Try the calendar, tree, multiline editor, workflow buttons and typed fields. Complete the required fields, then submit the result to Pi. See the [component reference](docs/components.md) and [actual Pi screenshots](docs/catalog-demo.md). This demo also accepts `--stream`.
 
 To persist installation, run `pi install /absolute/path/to/pi-openui`. The package manifest registers the extension and its bundled `openui` skill. Pi supplies its own TUI at runtime; development dependencies are only for local checks.
 
@@ -110,7 +110,7 @@ Use a `Stack` root and declared state variables of the appropriate type for form
 
 Submission continues the current agent turn without injecting a duplicate user message. Escape or Ctrl+C closes the form and returns `{"status":"cancelled"}` as a normal tool result. The caller resumes and decides what to do next; the extension does not abort the run, terminate a cell or restart the notebook. Invalid documents return an error with diagnostics. RPC, JSON and print modes return an explicit unsupported-mode error.
 
-Use inline displays for tables, explanations and code excerpts that need no acknowledgement. Use `presentation: "fullscreen"` for an explicitly requested expanded view or dense inspection. In a fullscreen display-only document, Enter closes the view and leaves the content inline; Escape returns a cancelled result. This does not add chart or Mermaid components to the catalog. See [inline presentation and cancellation](docs/inline-ui.md).
+Use inline displays for tables, explanations and code excerpts that need no acknowledgement. Use `presentation: "fullscreen"` for an explicitly requested expanded view or dense inspection. In a fullscreen display-only document, Enter closes the view and leaves the content inline; Escape returns a cancelled result. Only the catalog's horizontal BarChart is supported; fullscreen does not add other charts or Mermaid. See [inline presentation and cancellation](docs/inline-ui.md).
 
 Use local widgets for calculators, comparisons, Tabs, Trees and expandable explanations when no result is needed by the agent. F6 transfers focus between chat and the widget; Shift+F6 cycles widgets. F2 or the header control expands/collapses a local widget within the transcript. Escape/Ctrl+C returns focus to chat, while `/openui-close [id]` dismisses one. Edits, expansion, reset, blur, later chat and dismissal never send values to the model or start a tool. Only Set/Reset actions and local sequences are accepted. Widgets keep independent live state across turns; reopening or replaying a session restores original defaults, visible and compact, rather than edited values or presentation state. See [local interaction, lifecycle and the hosting explorer](docs/local-interaction.md).
 
@@ -139,7 +139,7 @@ See the [submission summary screenshots](docs/submission-summaries.md) for actua
 
 ## Model guidance
 
-The extension automatically supplies lang-core's component schemas, binding/action rules, core interaction policy and examples whenever `show_ui` is active in TUI mode. The bundled [openui skill](skills/openui/SKILL.md) teaches when to use prose, a static display, nonblocking local exploration, an answer-collecting form or expanded inspection; how to compose comparisons, decisions and scenario explorers; and how to choose among the 28 components. It covers grounded data, meaningful reactive state, layout, cancellation, validation, code/notebook execution and useful submission receipts. Complete examples distinguish local recalculation/reset from explicit answer collection and submission.
+The extension automatically supplies lang-core's component schemas, binding/action rules, core interaction policy and examples whenever `show_ui` is active in TUI mode. The bundled [openui skill](skills/openui/SKILL.md) teaches when to use prose, a static display, nonblocking local exploration, an answer-collecting form or expanded inspection; how to compose comparisons, decisions and scenario explorers; and how to choose among the 29 components. It covers grounded data, meaningful reactive state, layout, cancellation, validation, code/notebook execution and useful submission receipts. Complete examples distinguish local recalculation/reset from explicit answer collection and submission.
 
 Package installation makes the skill discoverable. Pi loads its detailed instructions on demand; `/skill:openui` explicitly loads it. When running only the extension file with `-e`, add `--skill ./skills/openui/SKILL.md` as in the command above. Keep `read` or `bash` available if you use a restricted tool list: Pi omits skill discovery from the model prompt when neither tool is callable. The generated component prompt remains available independently of skill loading. It includes the public bounds documented in the [component reference](docs/components.md). Upstream-generated action guidance still advertises `@OpenUrl` and actionless buttons, contrary to the current runtime. That separate limitation is tracked in [issue #15](https://github.com/FireTheDevil/pi-openui/issues/15).
 
@@ -171,7 +171,7 @@ The third-party Code/Notebook Mode in `@howaboua/pi-codex-conversion` 4.0.7 expo
 
 OpenUI Lang accepts host-defined component libraries. These are terminal-specific schemas, not drop-in replacements for the differently shaped components in OpenUI's web libraries.
 
-The catalog is defined with Zod schemas supplied to lang-core. It covers terminal forms, layouts, navigation and structured output; it does not implement every component in OpenUI's separate web libraries. Charts, media, rich document editing and browser-specific interactions remain outside this catalog.
+The catalog is defined with Zod schemas supplied to lang-core. It covers terminal forms, layouts, navigation and structured output; it does not implement every component in OpenUI's separate web libraries. BarChart compares one finite, nonnegative series with horizontal bars and exact values. Other charts, media, rich document editing and browser-specific interactions remain outside this catalog.
 
 ## Appearance
 
@@ -225,7 +225,7 @@ Completed documents are parsed and validated before interaction. For explicit co
 
 While a collect-mode form has focus, Escape and Ctrl+C close it and return an ordinary cancelled result. The caller can branch on that result without losing notebook variables or restarting a kernel. In a local widget, those keys return focus to chat without dismissal or another tool result. A separate tool/session abort, timeout, interrupted generation or shutdown still cleans up the view through the host's normal lifecycle. Cancelling a preview prevents that tool call from reopening it. Only one interactive view owns keyboard focus at a time; multiple local widgets may remain mounted alongside chat.
 
-Malformed source, unresolved references, invalid props, duplicate field names and unsupported components produce diagnostics. Documents are limited to 65,536 characters, 256 components, 32 levels, 200 table rows/options and 20 columns. Model text is stripped of terminal control sequences. Buttons can update local state or return structured data to Pi; they do not execute external tools or scripts.
+Malformed source, unresolved references, invalid props, duplicate field names and unsupported components produce diagnostics. Documents are limited to 65,536 characters, 256 components, 32 levels, 200 table rows, chart entries or options and 20 columns. Model text is stripped of terminal control sequences. Buttons can update local state or return structured data to Pi; they do not execute external tools or scripts.
 
 ## Development
 

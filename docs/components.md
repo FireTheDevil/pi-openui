@@ -1,6 +1,6 @@
 # Terminal component catalog
 
-Run `/openui-demo --catalog` to explore all 28 components, or add `--stream` to watch the document arrive. The demo has Forms, Layout, Display and Advanced pages. Complete the required Owner and confirmation fields before submitting. Reset restores the document's defaults.
+Run `/openui-demo --catalog` to explore all 29 components, or add `--stream` to watch the document arrive. The demo has Forms, Layout, Display and Advanced pages. Complete the required Owner and confirmation fields before submitting. Reset restores the document's defaults.
 
 The same component catalog supports three contracts: static inline display, `interaction: "local"` for persistent exploration without an answer, and default/`interaction: "collect"` for a form that waits for input. Local mode is not limited to form fields: Tabs, Tree, local disclosure buttons and reactive text/table combinations work too. Removing a Submit button does not change the default waiting contract. See [local interaction](local-interaction.md) for focus and lifecycle.
 
@@ -103,16 +103,28 @@ Accordion uses common field settings and a boolean value. Chevrons show disclosu
 | List | `List(items, ordered?)` | String items with bullets or numbering |
 | Badge | `Badge(text, tone?)` | Compact status label; accent tone by default |
 | Progress | `Progress(value, max?, label?)` | Progress from zero through max; max defaults to 100 |
+| BarChart | `BarChart(data)` | Display-only horizontal bars for ordered `{label, value}` records |
 | Table | `Table(columns, rows)` | Read-only table; scalar cells and equal column counts |
 | Callout | `Callout(title, text, settings?)` | Semantic notice with optional local dismissal |
 
 Text-bearing strings contain at most 4,000 characters, including labels, text, code, placeholders, descriptions, errors, option/page/tree values, string field values, list items and table string cells. Names have their separate restriction. Tables require 1 through 20 columns and allow at most 200 rows. Lists allow at most 200 items. Progress `max` must be strictly positive when supplied and defaults to 100.
 
+BarChart accepts zero through 200 records with string labels and finite, nonnegative values. Duplicate and empty labels are valid; empty labels display as `(unnamed)`. Labels are sanitized and newlines become spaces. Input order is preserved. Empty data displays `(no data)`. Bars share a zero baseline and the current dataset's maximum. All-zero data has no filled bars. Small positives can round to zero cells; exact JavaScript `String(value)` numbers remain visible. Negative and nonfinite values produce diagnostics, not clamped bars.
+
+Label, bar and value columns stay separate. If complete labels do not fit or fewer than four bar cells remain, the chart wraps complete `label: value` records instead. Titles and units belong in surrounding Text. There are no chart settings, orientation options, controls or submitted chart values. Separate charts do not share a scale. Reactive data updates and rescales locally; replay restores source defaults, not edits.
+
+```openui
+root = Stack([
+	Text("Illustrative requests by service"),
+	BarChart([{label: "API", value: 120}, {label: "Worker", value: 75}, {label: "Scheduler", value: 0}])
+])
+```
+
 Tones are `default`, `muted`, `accent`, `success`, `warning` and `error`. Text settings are `{tone?, bold?, italic?}`. Colors come from Pi's active theme. Markdown and code stay in the terminal; no browser, React or webview is involved.
 
 Callout settings accept `tone` and `dismissible`. A padded box surrounds the heading, body and optional dismissal control. The border uses the theme tone, and the heading names the tone as well as using its color. Without `dismissible: true`, a Callout is display-only. With it, **Dismiss notice** is a keyboard and mouse control. Dismissal is local presentation state. It does not set a variable, validate a field, submit an answer or dismiss another notice. A new view starts with its notices visible.
 
-Display properties may depend on state. For example, `Text("Retries: " + $retries)`, `Progress($done, 5, "Checks")` and `Table(["Enabled"], [[$enabled]])` update immediately when their dependencies change.
+Display properties may depend on state. For example, `Text("Retries: " + $retries)`, `Progress($done, 5, "Checks")`, `BarChart([{label: "Done", value: $done}])` and `Table(["Enabled"], [[$enabled]])` update immediately when their dependencies change.
 
 ## Keyboard and mouse
 
