@@ -2,6 +2,18 @@
 
 Recorded release checks and their scope. These results do not guarantee behavior with every model or environment.
 
+## Conditional local-widget expansion (2026-11-07)
+
+On Linux with Node 24.22.1, Pi and TUI development dependencies 1.4.0, and lang-core 1.0.2, `npm run lint`, `npm run typecheck`, and all 241 existing tests passed. There were no failures or skips. No unit tests or existing assertions changed.
+
+The change derives expansion eligibility from the last valid interactive render's overflow and the existing compact and expanded height limits. It preserves Collapse while expanded and uses the same eligibility rule for the header and F2. The existing suite includes local-widget focus, pointer, scrollbar, Hide/Restore and lifecycle checks, plus Pi skill discovery and example validation.
+
+Actual Pi 1.5.0 CLI verification used tmux and `/openui-demo --local-tabs` with the repository extension loaded explicitly. Before the change, at 100 columns and 40 rows, F2 changed Expand to Collapse without revealing content or enlarging the widget. After restarting with the changed extension, Expand was absent and F2 left the compact state unchanged. Resizing to 100 columns and 20 rows restored Expand; F2 revealed the previously clipped Reset explanation control. Resizing back retained Collapse, and collapsing removed the expansion control again. These checks used the deterministic local demo, not a model-generated response. Captures are retained locally under `/tmp/openui-expand-evidence/`.
+
+An independent runtime probe exercised the exported local-widget manager and real views with a simulated host and Pi TUI 1.4.0. All six scenarios passed: short content, exact fit versus one-row overflow, equal minimum height limits, height and width resizing, reactive growth and shrinkage with Collapse retention, and useful expansion with retained edits and paging. These checks cover eligibility after rendering, not input before a pending repaint. The probe and output are retained locally under `/tmp/openui-expand-runtime/`. Independent static review found no functional defect; its one comment-removal finding was applied.
+
+Check output is retained in `/tmp/openui-expand-fix-checks/lint.txt`, `typecheck.txt` and `test.txt`. Historical entries below describe earlier changes, not verification of this expansion policy.
+
 ## Signed BarChart domains (2026-11-06)
 
 On Linux with Node 24.22.1 and Pi and TUI development dependencies 1.4.0, `npm run lint`, `npm run typecheck`, and all 241 existing tests passed without failures or skips. No unit tests or existing assertions changed.

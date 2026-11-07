@@ -81,6 +81,10 @@ function localWidgetLayout(hostWidth: number): LocalWidgetLayout | undefined {
   return width > 0 ? { width, edge: width >= 20 ? "right" : "none" } : undefined;
 }
 
+function localViewHeight(rows: number, expanded: boolean): number {
+  return Math.max(5, Math.min(expanded ? 48 : 18, Math.floor(rows * (expanded ? 3 / 4 : 1 / 2))));
+}
+
 interface Widget {
   data: StoredWidget;
   model: DocumentModel;
@@ -358,13 +362,20 @@ export function createLocalWidgets(pi: Pick<ExtensionAPI, "registerEntryRenderer
 
     const options: ViewOptions = {
       interaction: "local", title: data.title, theme: {}, fillHeight: false, surface: "inline",
-      getHeight: () => Math.max(5, Math.min(widget.expanded ? 48 : 18,
-        Math.floor((host?.terminal.rows ?? 30) * (widget.expanded ? 3 / 4 : 1 / 2)))),
+      getHeight: () => localViewHeight(host?.terminal.rows ?? 30, widget.expanded),
       requestRender, onDone() {}, onBlur: blur,
       showHeading: false,
     };
 
+    const canExpand = () => {
+      const rows = host?.terminal.rows ?? 30;
+
+      return !widget.hidden && !widget.disposed && widget.view.hasOverflow
+        && localViewHeight(rows, true) > localViewHeight(rows, false);
+    };
+
     const toggleExpanded = () => {
+      if (!widget.expanded && !canExpand()) return;
       widget.view.cancelPointerGesture();
       widget.expanded = !widget.expanded;
 
@@ -414,6 +425,7 @@ export function createLocalWidgets(pi: Pick<ExtensionAPI, "registerEntryRenderer
         // retain the host width separately for rendering its transcript parent.
         if (revealProbe === widget) return [`OpenUI focus probe: ${data.widgetId}`,
           ...(widget.hidden ? [] : widget.view.render(layout.width, layout.edge))];
+        const body = widget.hidden ? [] : widget.view.render(layout.width, layout.edge);
         const style = presentation(() => widget.theme);
         const textWidth = layout.width - (layout.edge === "right" ? 2 : 0);
         const left = safeText(data.title).trim() || "Local explorer";
@@ -422,7 +434,7 @@ export function createLocalWidgets(pi: Pick<ExtensionAPI, "registerEntryRenderer
         const controls: Array<{ action: HeaderAction; label: string }> = widget.hidden
           ? [{ action: "restore", label: textWidth >= 22 ? "[Restore]" : textWidth >= 6 ? "[R]" : "R" }]
           : [
-            ...(textWidth >= 18 ? [{ action: "expand" as const, label: textWidth >= 50 ? `[${widget.expanded ? "Collapse" : "Expand"} F2]` : `[${widget.expanded ? "−" : "+"}]` }] : []),
+            ...(textWidth >= 18 && (widget.expanded || canExpand()) ? [{ action: "expand" as const, label: textWidth >= 50 ? `[${widget.expanded ? "Collapse" : "Expand"} F2]` : `[${widget.expanded ? "−" : "+"}]` }] : []),
             { action: "hide", label: textWidth >= 30 ? "[Hide]" : textWidth >= 6 ? "[H]" : "H" },
           ];
 
@@ -443,7 +455,7 @@ export function createLocalWidgets(pi: Pick<ExtensionAPI, "registerEntryRenderer
 
         if (layout.edge === "right") header += " " + style.fg("borderMuted", "┐");
 
-        return [header, ...(widget.hidden ? [] : widget.view.render(layout.width, layout.edge))];
+        return [header, ...body];
       },
       handleInput(data: string) {
         if (widget.disposed || widget.hidden || focused() !== widget.component) return;

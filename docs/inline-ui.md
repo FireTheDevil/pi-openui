@@ -9,7 +9,7 @@
 | Default/`interaction: "collect"` with fields, navigation or buttons | Focus a compact native view in Pi's editor area while leaving conversation context visible | Typed `submitted` result after a final action |
 | Explicit `presentation: "fullscreen"` | Open an expanded view for inspection or interaction | Submission for a form; Enter closes display-only content and leaves it inline |
 
-`presentation: "auto"` and `"inline"` both prefer inline content. For collect-mode forms and static inspection, choose fullscreen when the user asks to expand something or sustained inspection needs the space. Local widgets reject fullscreen presentation; F2 or their header control instead expands/collapses their height within the transcript while chat remains available. The component catalog is unchanged: fullscreen does not add a chart, Mermaid or browser renderer.
+`presentation: "auto"` and `"inline"` both prefer inline content. For collect-mode forms and static inspection, choose fullscreen when the user asks to expand something or sustained inspection needs the space. Local widgets reject fullscreen presentation. F2 or their header control expands them within the transcript only when a taller viewport can reveal more content; Collapse remains available while expanded. Chat remains available. See the [local expansion policy](local-interaction.md#height-and-overflow). The component catalog is unchanged: fullscreen does not add a chart, Mermaid or browser renderer.
 
 Interactive views use the available terminal width with small side margins, rather than a fixed content-width cap.
 
