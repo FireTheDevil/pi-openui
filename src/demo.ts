@@ -78,6 +78,10 @@ root = Stack([
       List(["Local state updates are immediate", "Typed values reach the active Pi session", "Escape cancels without submitting"], true),
       Badge("Framework-free renderer", "accent"),
       Progress($progress, 5, "Checklist complete"),
+      Text("Illustrative checklist comparison, items"),
+      BarChart([{label: "Complete", value: $progress}, {label: "Remaining", value: 5 - $progress}], {max: 5}),
+      Text("Illustrative signed changes, items"),
+      BarChart([{label: "Change", value: $progress - 2}, {label: "Offset", value: 2 - $progress}], {orientation: "vertical", min: -5, max: 5}),
       Button("Advance progress", @Set($progress, $progress < 5 ? $progress + 1 : 0)),
       Table(["Field", "Current value", "Type"], [["Owner", $owner, "string"], ["Retries", $count, "number"], ["Enabled", $enabled, "boolean"], ["Selected checks", $checks.length, "array length"], ["Date", $date, "ISO date"]])
     ]},

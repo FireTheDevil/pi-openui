@@ -14,7 +14,7 @@ $tree = "child"
 $tab = "first"
 $step = "plan"
 $notes = "Line one\\nLine two"
-root = Stack([Accordion("details", "Details", [Text("Disclosure")], false), Callout("Notice", "Catalog example"), EditableTable("records", "Records", [{key: "item", label: "Item", type: "string"}], [{item: "One"}]), Text("Styled", {tone: "accent", bold: true, italic: true}), Select("choice", "Choice", [{value: "one", label: "First", description: "Available"}, {value: "two", label: "Second", disabled: true}], "one"), Input("title", "Title", "", null, {description: "Optional title"}), Button("Submit", @ToAssistant("Use values"), {variant: "primary"}), Table(["A", "B"], [[1, true]]), Checkbox("check", "Check", $check), MultiSelect("tags", "Tags", ["one", "two"], $tags), TextArea("notes", "Notes", $notes, null, {rows: 5}), Row([Badge("Label", "success"), Divider()]), Section("Section", [Markdown("**Markdown**")]), Card("Card", [CodeBlock("const n = 1", "ts")]), Tabs("tab", [{value: "first", label: "First", children: [List(["A", "B"], true)]}, {value: "second", label: "Second", children: [Text("Hidden")]}], $tab), Steps("step", [{value: "plan", label: "Plan", children: [Progress(25, 100, "Done")]}], $step), NumberInput("amount", "Amount", $amount, {min: 0, max: 10, step: 1}), Toggle("toggle", "Toggle", $toggle), Slider("slider", "Slider", $slider, 0, 100, null, {description: "Percent"}), DatePicker("date", "Date", $date, {minDate: "2024-01-01", maxDate: "2024-12-31"}), Tree("tree", "Tree", [{value: "parent", label: "Parent", children: [{value: "child", label: "Child"}]}], $tree)])`;
+root = Stack([Accordion("details", "Details", [Text("Disclosure")], false), Callout("Notice", "Catalog example"), EditableTable("records", "Records", [{key: "item", label: "Item", type: "string"}], [{item: "One"}]), Text("Styled", {tone: "accent", bold: true, italic: true}), Select("choice", "Choice", [{value: "one", label: "First", description: "Available"}, {value: "two", label: "Second", disabled: true}], "one"), Input("title", "Title", "", null, {description: "Optional title"}), Button("Submit", @ToAssistant("Use values"), {variant: "primary"}), Table(["A", "B"], [[1, true]]), BarChart([{label: "One", value: 1}]), Checkbox("check", "Check", $check), MultiSelect("tags", "Tags", ["one", "two"], $tags), TextArea("notes", "Notes", $notes, null, {rows: 5}), Row([Badge("Label", "success"), Divider()]), Section("Section", [Markdown("**Markdown**")]), Card("Card", [CodeBlock("const n = 1", "ts")]), Tabs("tab", [{value: "first", label: "First", children: [List(["A", "B"], true)]}, {value: "second", label: "Second", children: [Text("Hidden")]}], $tab), Steps("step", [{value: "plan", label: "Plan", children: [Progress(25, 100, "Done")]}], $step), NumberInput("amount", "Amount", $amount, {min: 0, max: 10, step: 1}), Toggle("toggle", "Toggle", $toggle), Slider("slider", "Slider", $slider, 0, 100, null, {description: "Percent"}), DatePicker("date", "Date", $date, {minDate: "2024-01-01", maxDate: "2024-12-31"}), Tree("tree", "Tree", [{value: "parent", label: "Parent", children: [{value: "child", label: "Child"}]}], $tree)])`;
 
 function all(model: DocumentModel): RenderedNode[] {
   const result: RenderedNode[] = [];
@@ -36,8 +36,8 @@ const checked = (source: string) => {
   return model;
 };
 
-test("all 28 catalog components parse, generate signatures and traverse every layout", () => {
-  assert.equal(Object.keys(componentSpecs).length, 28);
+test("all 29 catalog components parse, generate signatures and traverse every layout", () => {
+  assert.equal(Object.keys(componentSpecs).length, 29);
   const model = checked(allComponents);
   const found = new Set(all(model).map(node => node.typeName));
 

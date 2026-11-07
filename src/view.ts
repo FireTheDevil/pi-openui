@@ -150,6 +150,11 @@ export class OpenUIView implements Component, Focusable {
     this.refresh();
   }
 
+  /** Overflow from the last valid interactive render, not pending content or layout changes. */
+  get hasOverflow(): boolean {
+    return !this.closed && this.renderedWidth > 0 && this.bodyLength > this.pageSize;
+  }
+
   /** Retain hidden-page widgets too, so draft text/cursors survive page navigation. */
   refresh(resetTargets = new Set<string>()): void {
     if (this.closed) return;
